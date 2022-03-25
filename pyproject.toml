@@ -1,0 +1,81 @@
+[tool.poetry]
+name = "libpacstall"
+version = "0.1.0"
+description = "Backend API library for Pacstall"
+authors = [
+	"Henry <hwengerstickel@protonmail.com>",
+	"Sourajyoti Basak <wiz28@protonmail.com>",
+	"David Brochero <davidfbg00@gmail.com>"
+]
+license = "GPL-3.0-or-later"
+readme = "README.md"
+homepage = "https://pacstall.dev"
+repository = "https://github.com/pacstall/libpacstall"
+documentation = "https://github.com/pacstall/libpacstall/wiki"
+keywords = [
+	"aur",
+	"cli",
+	"command line",
+	"console",
+	"debian",
+	"package manager",
+	"pacscript",
+	"pacstall",
+	"ubuntu"
+]
+classifiers = [
+	"Development Status :: 5 - Production/Stable",
+	"Environment :: Console",
+	"Intended Audience :: Developers",
+	"Intended Audience :: End Users/Desktop",
+	"Intended Audience :: System Administrators",
+	"License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+	"Operating System :: POSIX :: Linux",
+	"Programming Language :: Python :: 3 :: Only",
+	"Programming Language :: Python :: 3.8",
+	"Programming Language :: Python :: 3.9",
+	"Programming Language :: Python :: 3.10",
+	"Programming Language :: Python :: 3.11",
+	"Programming Language :: Python :: Implementation :: CPython",
+	"Programming Language :: Other",
+	"Programming Language :: Other Scripting Engines",
+	"Topic :: System",
+	"Topic :: System :: Archiving :: Packaging",
+	"Topic :: System :: Installation/Setup",
+	"Topic :: System :: Systems Administration",
+	"Topic :: System :: Software Distribution",
+	"Topic :: Utilities"
+]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+
+[tool.poetry.dev-dependencies]
+black = "^22.1"
+codespell = "^2.1.0"
+isort = "^5.10.1"
+mypy = "^0.931"
+pre-commit = "^2.15.0"
+pyupgrade = "^2.29.1"
+
+[tool.isort]
+balanced_wrapping = true
+combine_star = true
+group_by_package = true
+known_first_party = ["pacstall"]
+lexicographical = true
+profile = "black"
+py_version = 38
+
+[tool.mypy]
+disallow_untyped_decorators = false
+ignore_missing_imports = true
+pretty = true
+show_column_numbers = true
+show_error_codes = true
+show_error_context = true
+strict = true
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
