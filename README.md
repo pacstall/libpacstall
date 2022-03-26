@@ -39,6 +39,10 @@ To install the latest development build run:
 $ pip install git+https://github.com/pacstall/libpacstall@develop
 ```
 
+## Stats
+
+<p align="center"><img alt="Repobeats analytics image" src="https://repobeats.axiom.co/api/embed/2238a489ea987735d3dff77778b2f15b93d17fd3.svg" /></p>
+
 ## License
 
 <p align="center"><img alt="GPL-3.0-or-later" height="100" src="https://www.gnu.org/graphics/gplv3-or-later.svg" /></p>
