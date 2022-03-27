@@ -51,6 +51,7 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = "^3.8"
+tomli = "^2.0.1"
 
 [tool.poetry.dev-dependencies]
 black = "^22.1"
@@ -59,6 +60,8 @@ isort = "^5.10.1"
 mypy = "^0.942"
 pre-commit = "^2.15.0"
 pyupgrade = "^2.29.1"
+pytest = "^7.1.1"
+coverage = "^6.3.2"
 
 [tool.isort]
 balanced_wrapping = true
