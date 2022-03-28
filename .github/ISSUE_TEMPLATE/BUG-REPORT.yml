@@ -1,0 +1,60 @@
+name: Bug report
+description: Create a report to help us improve
+labels: ["bug", "triage"]
+assignees:
+  - wizard-28
+  - D-Brox
+body:
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Are you sure this is an issue with LibPacstall and not with the program that uses this library?
+      options:
+        - label: Yes, I am sure this is an issue with LibPacstall
+          required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      placeholder: Tell us what happened!
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: To reproduce
+      placeholder: 1. Write step by step what you did
+    validations:
+      required: true
+  - type: textarea
+    id: expectation
+    attributes:
+      label: Expected behavior
+    validations:
+          required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      placeholder: Attach or link to screenshots here.
+    validations:
+          required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS version
+      description: Provide your OS version.
+      placeholder: Ubuntu 20.04
+    validations:
+      required: true
+  - type: input
+    id: application
+    attributes:
+      label: Application
+      description: Provide the name of the application you've used LibPacstall with and it's version.
+      placeholder: Pacstall 1.7.2 (develop)
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else you want to inform us about
