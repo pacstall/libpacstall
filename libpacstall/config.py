@@ -26,7 +26,10 @@ from os import cpu_count, environ
 from pathlib import Path
 from typing import Any, Dict
 
-from tomli import load
+try:
+    import tomllib  # type: ignore[unused-import]
+except ModuleNotFoundError:
+    import tomli as tomllib  # type: ignore[no-redef]
 
 
 class Settings:
@@ -98,8 +101,8 @@ class Config:
         config_file.touch(exist_ok=True)
 
         with config_file.open(mode="rb") as file:
-            raw_config = load(file)
+            raw_config = tomllib.load(file)  # type: ignore[unknown-type]
 
         self.raw_config = raw_config
 
-        self.settings = Settings(raw_config)
+        self.settings = Settings(raw_config)  # type: ignore[unknown-type]
