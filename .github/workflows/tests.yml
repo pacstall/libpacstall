@@ -1,4 +1,4 @@
-name: codacy-coverage-reporter
+name: tests
 
 on: ["push"]
 
@@ -15,15 +15,15 @@ jobs:
         run: |
           curl -sSL https://install.python-poetry.org | python3 -
           poetry install
-      - name: Run tests
+      - name: Test LibPacstall
         run: |
           poetry run coverage run -m pytest .
       - name: Generate Coverage Report
         run: |
           poetry run coverage report -m
           poetry run coverage xml
-      - name: Upload Coverage Report to Codacy
-        uses: codacy/codacy-coverage-reporter-action@v1
+      - name: Upload Coverage Report to CodeCov
+        uses: codecov/codecov-action@v2
         with:
-          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
-          coverage-reports: coverage.xml
+          fail_ci_if_error: true
+          verbose: true
