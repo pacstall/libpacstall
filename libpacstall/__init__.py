@@ -1,23 +1,23 @@
-#     ____                  __        ____
-#    / __ \____ ___________/ /_____ _/ / /
-#   / /_/ / __ `/ ___/ ___/ __/ __ `/ / /
-#  / ____/ /_/ / /__(__  ) /_/ /_/ / / /
-# /_/    \__,_/\___/____/\__/\__,_/_/_/
+#     __    _ __    ____                  __        ____
+#    / /   (_) /_  / __ \____ ___________/ /_____ _/ / /
+#   / /   / / __ \/ /_/ / __ `/ ___/ ___/ __/ __ `/ / /
+#  / /___/ / /_/ / ____/ /_/ / /__(__  ) /_/ /_/ / / /
+# /_____/_/_.___/_/    \__,_/\___/____/\__/\__,_/_/_/
 #
 # Copyright (C) 2022-present
 #
-# This file is part of Pacstall
+# This file is part of LibPacstall.
 #
-# Pacstall is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, version 3 of the License
+# LibPacstall is free software: you can redistribute it and/or modify it under the
+# terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
 #
-# Pacstall is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
+# LibPacstall is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License
-# along with Pacstall. If not, see <https://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU General Public License along with
+# LibPacstall. If not, see <https://www.gnu.org/licenses/>.
 
 __version__ = "0.1.0"
