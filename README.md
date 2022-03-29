@@ -4,6 +4,9 @@
 <p align="center">
     <!-- Programming info -->
     <a href="https://www.python.org/"><img alt="python 3.8+" src="https://img.shields.io/badge/python-3.8%2B-306998?logo=python&logoColor=white&style=for-the-badge" /></a>
+    <a href="https://codecov.io/gh/pacstall/libpacstall">
+        <img alt="Codecov" src="https://img.shields.io/codecov/c/gh/pacstall/libpacstall?logo=codecov&logoColor=white&style=for-the-badge">
+    </a>
     <a href="https://github.com/psf/black"><img alt="code style: 3.8+" src="https://img.shields.io/badge/code%20style-black-black?style=for-the-badge" /></a>
     <a href="https://www.codacy.com/gh/pacstall/libpacstall/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=pacstall/libpacstall&amp;utm_campaign=Badge_Grade">
         <img alt="Codacy branch grade" src="https://img.shields.io/codacy/grade/e2155a8b2f0e4804b9c6a4b1441c3b3a?label=code%20quality&logo=codacy&logoColor=white&style=for-the-badge" />
