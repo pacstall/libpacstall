@@ -40,6 +40,12 @@ body:
     validations:
           required: true
   - type: input
+    id: application
+    attributes:
+      label: Application
+      description: Provide the name of the application you've used LibPacstall with and it's version.
+      placeholder: Pacstall 1.7.2 (develop)
+  - type: input
     id: os
     attributes:
       label: OS version
@@ -48,11 +54,19 @@ body:
     validations:
       required: true
   - type: input
-    id: application
+    id: libpacstall
     attributes:
-      label: Application
-      description: Provide the name of the application you've used LibPacstall with and it's version.
-      placeholder: Pacstall 1.7.2 (develop)
+      label: LibPacstall version
+      description: |
+        What LibPacstall version are you using?
+
+        You can find the LibPacstall version with:
+
+        ```bash
+        python -c "import libpacstall; print(libpacstall.__version__)"
+        ```
+    validations:
+      required: true
   - type: textarea
     id: context
     attributes:
