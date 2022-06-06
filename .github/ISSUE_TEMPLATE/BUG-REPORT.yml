@@ -8,7 +8,7 @@ body:
   - type: checkboxes
     id: confirmation
     attributes:
-      label: Are you sure this is an issue with LibPacstall and not with the program that uses this library?
+      label: Are you sure this is an issue with LibPacstall and not with the program that uses this library (or it's bindings)?
       options:
         - label: Yes, I am sure this is an issue with LibPacstall
           required: true
@@ -50,21 +50,14 @@ body:
     attributes:
       label: OS version
       description: Provide your OS version.
-      placeholder: Ubuntu 20.04
+      placeholder: Ubuntu 22.04
     validations:
       required: true
   - type: input
     id: libpacstall
     attributes:
       label: LibPacstall version
-      description: |
-        What LibPacstall version are you using?
-
-        You can find the LibPacstall version with:
-
-        ```bash
-        python -c "import libpacstall; print(libpacstall.__version__)"
-        ```
+      description: What LibPacstall version are you using?
     validations:
       required: true
   - type: textarea
