@@ -3,15 +3,12 @@
 
 <p align="center">
     <!-- Programming info -->
-    <a href="https://www.python.org/"><img alt="python 3.8+" src="https://img.shields.io/badge/python-3.8%2B-306998?logo=python&logoColor=white&style=for-the-badge" /></a>
     <a href="https://codecov.io/gh/pacstall/libpacstall">
         <img alt="Codecov" src="https://img.shields.io/codecov/c/gh/pacstall/libpacstall?logo=codecov&logoColor=white&style=for-the-badge">
     </a>
-    <a href="https://github.com/psf/black"><img alt="code style: 3.8+" src="https://img.shields.io/badge/code%20style-black-black?style=for-the-badge" /></a>
     <a href="https://www.codacy.com/gh/pacstall/libpacstall/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=pacstall/libpacstall&amp;utm_campaign=Badge_Grade">
         <img alt="Codacy branch grade" src="https://img.shields.io/codacy/grade/e2155a8b2f0e4804b9c6a4b1441c3b3a?label=code%20quality&logo=codacy&logoColor=white&style=for-the-badge" />
     </a>
-    <a href="https://www.gnu.org/software/bash"><img alt="bash v5" src="https://img.shields.io/badge/bash-v5-chateauGreen?logo=gnubash&logoColor=white&style=for-the-badge" /></a>
     <br />
     <!-- Social -->
     <a href="https://discord.gg/yzrjXJV6K8"><img alt="join discord" src="https://img.shields.io/discord/839818021207801878?color=5865F2&label=Discord&logo=discord&logoColor=FFFFFF&style=for-the-badge" /></a>
@@ -27,20 +24,6 @@
 
 LibPacstall is a backend API library for
 [Pacstall](https://github.com/pacstall/pacstall).
-
-## Installation
-
-To install the latest release run:
-
-```console
-$ pip install libpacstall
-```
-
-To install the latest development build run:
-
-```console
-$ pip install git+https://github.com/pacstall/libpacstall@develop
-```
 
 ## Stats
 
