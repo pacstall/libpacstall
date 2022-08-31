@@ -1,13 +1,8 @@
-#[must_use]
-pub fn add(left: usize, right: usize) -> usize { left + right }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+#![doc(
+    html_favicon_url = "https://raw.githubusercontent.com/pacstall/website/master/client/public/favicon.ico"
+)]
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/pacstall/website/master/client/public/pacstall.svg"
+)]
+#![allow(clippy::must_use_candidate)]
+pub mod config;
