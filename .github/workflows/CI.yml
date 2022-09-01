@@ -23,7 +23,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all-features --workspace
+          args: --doc --all-features --workspace
 
   rustfmt:
     name: Rustfmt
@@ -126,14 +126,14 @@ jobs:
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
           profile: minimal
           override: true
       - uses: Swatinem/rust-cache@v1
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
-          args: '--all-features --workspace --ignore-tests'
+          args: '--doc --tests --all-features --workspace --ignore-tests'
       - name: Upload to CodeCov
         uses: codecov/codecov-action@v3.1.0
         with:
