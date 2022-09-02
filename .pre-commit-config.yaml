@@ -1,3 +1,7 @@
+ci:
+  # Skip hooks requiring `just` to be installed
+  skip: [codespell, fmt, clippy]
+
 repos:
   # General
   - repo: https://github.com/pre-commit/pre-commit-hooks
