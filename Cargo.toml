@@ -2,10 +2,16 @@
 name = "libpacstall"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-[lib]
-name = "libpacstall"
+authors = [
+    "Sourajyoti Basak <wiz28@protonmail.com>",
+    "David Brochero <davidfbg00@gmail.com>",
+    "Paul Cosma <paul.cosma97@gmail.com>"
+]
+description = "Backend API library for Pacstall"
+repository = "https://github.com/pacstall/libpacstall"
+license = "GPL-3.0-or-later"
+keywords = ["aur", "pacstall", "package-manager", "linux", "apt"]
+categories = ["caching", "config", "parsing", "os::linux-apis"]
 
 [dependencies]
 figment = { version = "0.10.6", features = ["env", "test", "toml" ] }
