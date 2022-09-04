@@ -1,35 +1,35 @@
 <h1 align="center">LibPacstall</h1>
-<p align="center"><b>Backend API library for Pacstall</b></p>
 
 <p align="center">
-    <!-- Programming info -->
-    <a href="https://codecov.io/gh/pacstall/libpacstall">
-        <img alt="Codecov" src="https://img.shields.io/codecov/c/gh/pacstall/libpacstall?logo=codecov&logoColor=white&style=for-the-badge">
-    </a>
-    <a href="https://www.codacy.com/gh/pacstall/libpacstall/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=pacstall/libpacstall&amp;utm_campaign=Badge_Grade">
-        <img alt="Codacy branch grade" src="https://img.shields.io/codacy/grade/e2155a8b2f0e4804b9c6a4b1441c3b3a?label=code%20quality&logo=codacy&logoColor=white&style=for-the-badge" />
-    </a>
-    <br />
+    <!-- Project Information -->
+    <a href="https://www.rust-lang.org"><img alt="Made with Rust" src="https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white"/></a>
+    <a href="https://codecov.io/gh/pacstall/libpacstall"><img alt="Codecov" src="https://img.shields.io/badge/codecov-%23ff0077.svg?style=for-the-badge&logo=codecov&logoColor=white"/></a>
+    <br/>
     <!-- Social -->
-    <a href="https://discord.gg/yzrjXJV6K8"><img alt="join discord" src="https://img.shields.io/discord/839818021207801878?color=5865F2&label=Discord&logo=discord&logoColor=FFFFFF&style=for-the-badge" /></a>
-    <a href="https://reddit.com/r/pacstall"><img src="https://img.shields.io/reddit/subreddit-subscribers/pacstall?label=Reddit&color=FF4301&style=for-the-badge&logo=reddit&logoColor=FFFFFF" loading="lazy" /></a>
+    <a href="https://discord.gg/yzrjXJV6K8"><img alt="join discord" src="https://img.shields.io/badge/Discord-%237289DA.svg?style=for-the-badge&logo=discord&logoColor=white"/></a>
+    <a href="https://reddit.com/r/pacstall"><img src="https://img.shields.io/badge/Reddit-FF4500?style=for-the-badge&logo=reddit&logoColor=white"/></a>
     <a href="https://social.linux.pizza/web/@pacstall">
-        <img alt="Mastodon Follow" src="https://img.shields.io/mastodon/follow/107278715447740005?color=3088d4&domain=https%3A%2F%2Fsocial.linux.pizza&label=Mastodon&logo=mastodon&logoColor=white&style=for-the-badge" loading="lazy" />
+    <img alt="Mastodon Follow" src="https://img.shields.io/badge/-MASTODON-%232B90D9?style=for-the-badge&logo=mastodon&logoColor=white"/>
     </a>
-    <a href="https://matrix.to/#/#pacstall:matrix.org"><img alt="join matrix" src="https://img.shields.io/matrix/pacstall:matrix.org?color=888888&label=Matrix&logo=Matrix&style=for-the-badge" /></a>
-    <br />
+    <a href="https://matrix.to/#/#pacstall:matrix.org"><img alt="join matrix" src="https://img.shields.io/badge/matrix-000000?style=for-the-badge&logo=Matrix&logoColor=white"/></a>
+    <br/>
 </p>
 
-## What is this
+<p align="center">The backend API library for <a href="https://github.com/pacstall/pacstall">Pacstall</a></p>
 
-LibPacstall is a backend API library for
-[Pacstall](https://github.com/pacstall/pacstall).
+## 🔱 Info
 
-## Stats
+The backend API library for [Pacstall](https://github.com/pacstall/pacstall) written in Rust
+
+## 🌊 Features
+
++ Deserialize the Pacstall configuration from the TOML and environment variables
+
+## 📈 Stats
 
 <p align="center"><img alt="Repobeats analytics image" src="https://repobeats.axiom.co/api/embed/2238a489ea987735d3dff77778b2f15b93d17fd3.svg" /></p>
 
-## License
+## 📜 License
 
 <p align="center"><img alt="GPL-3.0-or-later" height="100" src="https://www.gnu.org/graphics/gplv3-or-later.svg" /></p>
 
