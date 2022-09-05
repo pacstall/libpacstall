@@ -1,4 +1,7 @@
-#[derive(Debug, PartialEq, Clone)]
+//! Provides various structs for querying and filtering packages.
+
+/// Used to query packages by installation state
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum InstallState {
     Direct,
     Indirect,
@@ -6,7 +9,7 @@ pub enum InstallState {
 }
 
 impl InstallState {
-    pub fn from_model_install_state(other: crate::model::InstallState) -> InstallState {
+    pub fn from_model_install_state(other: &crate::model::InstallState) -> InstallState {
         match other {
             crate::model::InstallState::Indirect(..) => InstallState::Indirect,
             crate::model::InstallState::Direct(..) => InstallState::Direct,
@@ -15,7 +18,8 @@ impl InstallState {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+/// Used to query packages by kind.
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Kind {
     AppImage,
     Binary,
@@ -25,7 +29,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub fn from_model_kind(other: crate::model::Kind) -> Kind {
+    pub fn from_model_kind(other: &crate::model::Kind) -> Kind {
         match other {
             crate::model::Kind::GitRelease => Kind::GitRelease,
             crate::model::Kind::GitBranch => Kind::GitBranch,

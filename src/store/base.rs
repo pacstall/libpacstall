@@ -1,33 +1,85 @@
+//! Abstraction over the caching implementation
+
+use std::fmt::Debug;
+
 use crate::model::{PacBuild, Repository};
+use crate::store::errors::StoreError;
 use crate::store::filters::{InstallState, Kind};
-use crate::store::StoreError;
 
-pub type UnitStoreResult = Result<(), StoreError>;
+/// Alias for store error results
+pub type StoreResult<T> = Result<T, StoreError>;
 
-pub trait Storable {
-    fn remove_pacbuild(&mut self, name: &str, repository_url: &str) -> UnitStoreResult;
-    fn add_pacbuild(&mut self, pacbuild: PacBuild, repository_url: &str) -> UnitStoreResult;
-    fn update_pacbuild(&mut self, pacbuild: PacBuild, repository_url: &str) -> UnitStoreResult;
+/// Abstraction over the caching implementation
+pub trait Base: Debug {
+    /// Removes `PacBuild` by name that belongs to the given repository.
+    ///
+    /// # Errors
+    /// * `StoreError::RepositoryNotFound`
+    /// * `StoreError::PacBuildNotFound`
+    fn remove_pacbuild(&mut self, name: &str, repository_url: &str) -> StoreResult<()>;
 
-    fn remove_all_pacbuilds(&mut self, name: Vec<&str>, repository_url: &str) -> UnitStoreResult;
+    /// Adds `PacBuild` to the given repository.
+    ///
+    /// # Errors
+    /// * `StoreError::RepositoryConflict`
+    /// * `StoreError::PacBuildConflict`
+    fn add_pacbuild(&mut self, pacbuild: PacBuild, repository_url: &str) -> StoreResult<()>;
+
+    /// Updates `PacBuild` that belongs to the given repository.
+    ///
+    /// # Errors
+    /// * `StoreError::RepositoryNotFound`
+    /// * `StoreError::PacBuildNotFound`
+    fn update_pacbuild(&mut self, pacbuild: PacBuild, repository_url: &str) -> StoreResult<()>;
+
+    /// Removes all `PacBuild` by name that belongs to the given repository.
+    ///
+    /// # Errors
+    /// * `StoreError::Aggregate`
+    fn remove_all_pacbuilds(&mut self, name: &[&str], repository_url: &str) -> StoreResult<()>;
+
+    /// Adds all `PacBuild` to the given repository.
+    ///
+    /// # Errors
+    /// * `StoreError::Aggregate`
     fn add_all_pacbuilds(
         &mut self,
         pacbuilds: Vec<PacBuild>,
         repository_url: &str,
-    ) -> UnitStoreResult;
+    ) -> StoreResult<()>;
+
+    /// Updates all `PacBuild` that belongs to the given repository.
+    ///
+    /// # Errors
+    /// * `StoreError::Aggregate`
     fn update_all_pacbuilds(
         &mut self,
         pacbuilds: Vec<PacBuild>,
         repository_url: &str,
-    ) -> UnitStoreResult;
+    ) -> StoreResult<()>;
 
-    fn remove_repository(&mut self, repository_url: &str) -> UnitStoreResult;
-    fn add_repository(&mut self, repository: Repository) -> UnitStoreResult;
-    fn update_repository(&mut self, repository: Repository) -> UnitStoreResult;
+    /// Removes [Repository] by url.
+    ///
+    /// # Errors
+    /// * `StoreError::RepositoryNotFound`
+    fn remove_repository(&mut self, repository_url: &str) -> StoreResult<()>;
+
+    /// Adds `Repository`.
+    ///
+    /// # Errors
+    /// * `StoreError::RepositoryConflict`
+    fn add_repository(&mut self, repository: Repository) -> StoreResult<()>;
+
+    /// Updates [Repository].
+    ///
+    /// # Errors
+    /// * `StoreError::RepositoryConflict`
+    fn update_repository(&mut self, repository: Repository) -> StoreResult<()>;
 
     fn get_pacbuild_by_name_and_url(&self, name: &str, repository_url: &str) -> Option<&PacBuild>;
     fn get_repository_by_name(&self, name: &str) -> Option<&Repository>;
     fn get_repository_by_url(&self, url: &str) -> Option<&Repository>;
+    fn get_all_repositories(&self) -> Vec<&Repository>;
 
     fn get_all_pacbuilds_by(
         &self,
@@ -38,7 +90,11 @@ pub trait Storable {
     ) -> Vec<&PacBuild>;
 }
 
-impl dyn Storable {
+impl dyn Base {
+    pub fn get_all_pacbuilds(&self) -> Vec<&PacBuild> {
+        self.get_all_pacbuilds_by(None, None, None, None)
+    }
+
     pub fn get_all_pacbuilds_by_name_like(&self, name_like: &str) -> Vec<&PacBuild> {
         self.get_all_pacbuilds_by(Some(name_like), None, None, None)
     }
