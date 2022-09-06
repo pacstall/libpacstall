@@ -23,6 +23,7 @@ pub struct PacBuild {
 
 /// Represents a `SemVer` version.
 /// # Examples
+///
 /// ```
 /// use libpacstall::model::Version;
 ///
@@ -32,6 +33,7 @@ pub type Version = String;
 
 /// Represents a `PacBuild` or Apt package name.
 /// # Examples
+///
 /// ```
 /// use libpacstall::model::PackageId;
 ///
@@ -40,6 +42,7 @@ pub type Version = String;
 pub type PackageId = String;
 /// Represents an URL
 /// # Examples
+///
 /// ```
 /// use libpacstall::model::URL;
 ///
@@ -48,6 +51,7 @@ pub type PackageId = String;
 pub type URL = String;
 /// Represents a file checksum
 /// # Examples
+///
 /// ```
 /// use libpacstall::model::Hash;
 ///
@@ -57,6 +61,7 @@ pub type Hash = String;
 
 /// Represents the install state of a package.
 /// # Examples
+///
 /// ```
 /// use chrono::NaiveDate;
 /// use libpacstall::model::InstallState;
@@ -87,6 +92,7 @@ impl InstallState {
 /// suffix.
 ///
 /// # Examples
+///
 /// ```
 /// use libpacstall::model::Kind;
 ///

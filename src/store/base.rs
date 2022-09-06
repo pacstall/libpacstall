@@ -76,11 +76,19 @@ pub trait Base: Debug {
     /// * `StoreError::RepositoryConflict`
     fn update_repository(&mut self, repository: Repository) -> StoreResult<()>;
 
+    /// Find first by name in the given repository
     fn get_pacbuild_by_name_and_url(&self, name: &str, repository_url: &str) -> Option<&PacBuild>;
+
+    /// Find repository by name
     fn get_repository_by_name(&self, name: &str) -> Option<&Repository>;
+    /// Find repository by url
     fn get_repository_by_url(&self, url: &str) -> Option<&Repository>;
+
+    /// Find all repositories
     fn get_all_repositories(&self) -> Vec<&Repository>;
 
+    /// Find all packages that match all the given params. `None` params are
+    /// skipped.
     fn get_all_pacbuilds_by(
         &self,
         name_like: Option<&str>,
@@ -91,6 +99,7 @@ pub trait Base: Debug {
 }
 
 impl dyn Base {
+    /// Find all pacbuilds from all repositories
     pub fn get_all_pacbuilds(&self) -> Vec<&PacBuild> {
         self.get_all_pacbuilds_by(None, None, None, None)
     }
