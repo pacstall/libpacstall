@@ -1,3 +1,5 @@
+//!
+
 use chrono::NaiveDateTime as DateTime;
 use serde_derive::{Deserialize, Serialize};
 
@@ -31,7 +33,7 @@ pub struct PacBuild {
 /// ```
 pub type Version = String;
 
-/// Represents a `PacBuild` or Apt package name.
+/// Represents a [`PacBuild`] or Apt package name.
 /// # Examples
 ///
 /// ```

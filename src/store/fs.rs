@@ -139,15 +139,14 @@ impl Base for FileSystemStore {
             .flat_map(|(_, pkgs)| pkgs)
             .filter(|it| {
                 if let Some(kind_filter) = &kind {
-                    *kind_filter == Kind::from_model_kind(&it.kind)
+                    *kind_filter == (&it.kind).into()
                 } else {
                     true
                 }
             })
             .filter(|it| {
                 if let Some(install_state_filter) = &install_state {
-                    *install_state_filter
-                        == InstallState::from_model_install_state(&it.install_state)
+                    *install_state_filter == (&it.install_state).into()
                 } else {
                     true
                 }

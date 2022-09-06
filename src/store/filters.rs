@@ -8,6 +8,12 @@ pub enum InstallState {
     None,
 }
 
+impl From<&crate::model::InstallState> for InstallState {
+    fn from(other: &crate::model::InstallState) -> Self {
+        InstallState::from_model_install_state(other)
+    }
+}
+
 impl InstallState {
     pub fn from_model_install_state(other: &crate::model::InstallState) -> InstallState {
         match other {
@@ -26,6 +32,10 @@ pub enum Kind {
     DebFile,
     GitBranch,
     GitRelease,
+}
+
+impl From<&crate::model::Kind> for Kind {
+    fn from(other: &crate::model::Kind) -> Self { Kind::from_model_kind(other) }
 }
 
 impl Kind {
