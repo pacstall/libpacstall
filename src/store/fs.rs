@@ -163,7 +163,7 @@ impl Base for FileSystemStore {
             .collect()
     }
 
-    fn remove_pacbuild(&mut self, name: &str, repository_url: &str) -> Result<(), StoreError> {
+    fn remove_pacbuild(&mut self, name: &str, repository_url: &str) -> StoreResult<()> {
         let repo = self
             .packages
             .get_mut(&repository_url.to_owned())
