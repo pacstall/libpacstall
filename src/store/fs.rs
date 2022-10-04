@@ -334,7 +334,7 @@ impl Base for FileSystemStore {
         }
     }
 
-    fn remove_repository(&mut self, repository_url: &str) -> Result<(), StoreError> {
+    fn remove_repository(&mut self, repository_url: &str) -> StoreResult<()> {
         let repo_idx = self
             .repositories
             .iter()
