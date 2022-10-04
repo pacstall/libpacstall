@@ -36,7 +36,7 @@ impl FileSystemStore {
         })
     }
 
-    /// # Private
+    /// Fetches [`PacBuild`]s by their repository URL.
     fn get_packages_by_repository(
         &mut self,
         repository_url: &str,
