@@ -38,7 +38,7 @@ impl FileSystemStore {
     fn get_packages_by_repository(
         &mut self,
         repository_url: &str,
-    ) -> Result<&mut Vec<PacBuild>, StoreError> {
+    ) -> StoreResult<&mut Vec<PacBuild>> {
         self.packages
             .get_mut(&repository_url.to_owned())
             .map_or_else(
