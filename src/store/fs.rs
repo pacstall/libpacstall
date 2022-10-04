@@ -9,8 +9,10 @@ use crate::model::{PacBuild, Repository};
 use crate::store::base::{Base, StoreResult};
 use crate::store::filters::{InstallState, Kind};
 
+/// Path of the database.
 #[cfg(not(test))]
 const FSS_PATH: &str = "/etc/pacstall/fss.json";
+/// Path of the database.
 #[cfg(test)]
 const FSS_PATH: &str = "./fss.json";
 
