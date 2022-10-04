@@ -78,7 +78,7 @@ impl FileSystemStore {
     }
 
     /// # Errors
-    pub fn load_from_disk() -> Result<Box<dyn Base>, StoreError> {
+    pub fn load_from_disk() -> StoreResult<Box<dyn Base>> {
         use std::fs;
         use std::path::Path;
 
