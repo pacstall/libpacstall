@@ -49,7 +49,7 @@ impl FileSystemStore {
             )
     }
 
-    /// # Private
+    /// Save the current [`FileSystemStore`] state to disk.
     fn save_to_disk(&self) -> StoreResult<()> {
         if self.allow_data_save {
             use std::fs;
