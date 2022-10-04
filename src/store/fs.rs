@@ -348,7 +348,7 @@ impl Base for FileSystemStore {
         Ok(())
     }
 
-    fn add_repository(&mut self, repository: Repository) -> Result<(), StoreError> {
+    fn add_repository(&mut self, repository: Repository) -> StoreResult<()> {
         let repo_exists = self.repositories.iter().any(|it| it.url == repository.url);
 
         if repo_exists {
