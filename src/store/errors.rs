@@ -5,6 +5,9 @@ use thiserror::Error;
 /// Errors used by Base
 #[derive(Debug, Clone, Error)]
 pub enum StoreError {
+    #[error("the provided query yielded no results")]
+    NoQueryMatch,
+
     #[error("repository '{0}' could not be found")]
     RepositoryNotFound(String),
 

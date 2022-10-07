@@ -1,7 +1,7 @@
 //! Provides various structs for querying and filtering packages.
 
 /// Used to query packages by installation state
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum InstallState {
     Direct,
     Indirect,
@@ -25,7 +25,7 @@ impl InstallState {
 }
 
 /// Used to query packages by kind.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Kind {
     AppImage,
     Binary,
