@@ -1,10 +1,17 @@
-//! Provides various structs for querying and filtering packages.
+//! Provides various structs for querying and filtering
+//! [`PacBuild`](crate::model::PacBuild)s.
 
-/// Used to query packages by installation state
+/// Used to query [`PacBuild`](crate::model::PacBuild)s by installation state.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum InstallState {
+    /// [`PacBuild`](crate::model::PacBuild) is installed directly.
     Direct,
+
+    /// [`PacBuild`](crate::model::PacBuild) is installed, but as a dependency
+    /// of another.
     Indirect,
+
+    /// [`PacBuild`](crate::model::PacBuild) is not installed.
     None,
 }
 
@@ -24,13 +31,24 @@ impl InstallState {
     }
 }
 
-/// Used to query packages by kind.
+/// Used to query [`PacBuild`](crate::model::PacBuild)s by kind.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Kind {
+    /// [`PacBuild`](crate::model::PacBuild) is a prebuilt AppImage.
     AppImage,
+
+    /// [`PacBuild`](crate::model::PacBuild) is a prebuilt binary. Usually a
+    /// compressed in a tar or zip file.
     Binary,
+
+    /// [`PacBuild`](crate::model::PacBuild) is a prebuilt `.deb` file.
     DebFile,
+
+    /// [`PacBuild`](crate::model::PacBuild) will be built from a git branch.
     GitBranch,
+
+    /// [`PacBuild`](crate::model::PacBuild) will be built from a fixed git
+    /// release.
     GitRelease,
 }
 

@@ -1,28 +1,75 @@
-//! Errors used by the caching system
+//! Errors used by the store
 
-use thiserror::Error;
+use std::fmt;
 
-/// Errors used by Base
-#[derive(Debug, Clone, Error)]
-pub enum StoreError {
-    #[error("the provided query yielded no results")]
-    NoQueryMatch,
+use error_stack::Context;
 
-    #[error("repository '{0}' could not be found")]
-    RepositoryNotFound(String),
+/// Given store query yielded no results
+#[derive(Debug, Clone)]
+pub struct NoQueryMatchError;
 
-    #[error("pacbuild '{name:?}' could not be found in repository {repository:?}")]
-    PacBuildNotFound { name: String, repository: String },
-
-    #[error("repository '{0}' already exists")]
-    RepositoryConflict(String),
-
-    #[error("pacbuild '{name:?}' already exists in repository {repository:?}")]
-    PacBuildConflict { name: String, repository: String },
-
-    #[error("unexpected error: {0}")]
-    Unexpected(String),
-
-    #[error("multiple errors: {0:?}")]
-    Aggregate(Vec<StoreError>),
+impl fmt::Display for NoQueryMatchError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.write_str("query yielded no results")
+    }
 }
+
+impl Context for NoQueryMatchError {}
+
+/// Store mutation failed
+#[derive(Debug, Clone)]
+pub struct EntityMutationError;
+
+impl fmt::Display for EntityMutationError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.write_str("store mutation failed")
+    }
+}
+
+impl Context for EntityMutationError {}
+
+/// Error representation of a failed IO operation.
+#[derive(Debug, Clone)]
+pub struct IOError;
+
+impl fmt::Display for IOError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.write_str("failed to do IO operation")
+    }
+}
+
+impl Context for IOError {}
+
+/// Generic store error representation.
+#[derive(Debug, Clone)]
+pub struct StoreError;
+
+impl fmt::Display for StoreError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.write_str("store operation failed")
+    }
+}
+
+impl Context for StoreError {}
+
+/// Error representation for entities that are not found.
+#[derive(Debug, Clone)]
+pub struct EntityNotFoundError;
+
+impl fmt::Display for EntityNotFoundError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result { fmt.write_str("entity not found") }
+}
+
+impl Context for EntityNotFoundError {}
+
+/// Error representation for entities that already exist, but shouldn't.
+#[derive(Debug, Clone)]
+pub struct EntityAlreadyExistsError;
+
+impl fmt::Display for EntityAlreadyExistsError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.write_str("entity already exists")
+    }
+}
+
+impl Context for EntityAlreadyExistsError {}

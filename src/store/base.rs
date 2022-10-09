@@ -3,13 +3,17 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
+use error_stack::{IntoReport, Report, Result, ResultExt};
 use serde::{Deserialize, Serialize};
 
-use super::query_builder::{MutationQuery, PacBuildQuery, Query, RepositoryQuery};
+use super::errors::{
+    EntityAlreadyExistsError, EntityMutationError, EntityNotFoundError, IOError, NoQueryMatchError,
+    StoreError,
+};
+use super::query_builder::{Mutable, PacBuildQuery, Queryable, RepositoryQuery};
 use crate::model::{PacBuild, Repository};
-use crate::store::errors::StoreError;
 
-/// Alias for store error results
+/// Shorthand alias for [`Result<T, StoreError>`].
 pub type StoreResult<T> = Result<T, StoreError>;
 
 /// Path of the database.
@@ -20,7 +24,7 @@ const FSS_PATH: &str = "/etc/pacstall/fss.json";
 #[cfg(test)]
 const FSS_PATH: &str = "./fss.json";
 
-/// `FileSystem` implementation for the caching system
+/// Store implementation for metadata caching.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Store {
     repositories: Vec<Repository>,
@@ -28,27 +32,33 @@ pub struct Store {
 }
 
 impl Store {
+    /// Loads the store from the disk.
+    ///
     /// # Errors
-    pub fn load() -> Result<Self, StoreError> {
+    ///
+    /// The following errors may occur:
+    ///
+    /// - [`StoreError`](crate::store::errors::StoreError) - Wrapper for all the
+    ///   other [`Store`] errors
+    /// - [`IOError`](crate::store::errors::IOError) - When attempting database
+    ///   import fails
+    pub fn load() -> StoreResult<Self> {
         use std::fs;
         use std::path::Path;
 
-        let contents = fs::read_to_string(Path::new(FSS_PATH)).map_or_else(
-            |_| {
-                Err(StoreError::Unexpected(
-                    "Unable to read database from disk.".to_string(),
-                ))
-            },
-            Ok,
-        )?;
-        let obj: Self = serde_json::from_str(&contents).map_or_else(
-            |_| {
-                Err(StoreError::Unexpected(
-                    "Unable to deserialize database.".to_string(),
-                ))
-            },
-            Ok,
-        )?;
+        let contents = fs::read_to_string(Path::new(FSS_PATH))
+            .into_report()
+            .attach_printable_lazy(|| format!("failed to read file {FSS_PATH:?}"))
+            .change_context(IOError)
+            .change_context(StoreError)?;
+
+        let obj: Self = serde_json::from_str(&contents)
+            .into_report()
+            .attach_printable_lazy(|| {
+                format!("failed to deserialize database contents: '{contents:?}'")
+            })
+            .change_context(IOError)
+            .change_context(StoreError)?;
 
         Ok(obj)
     }
@@ -58,30 +68,29 @@ impl Store {
         use std::fs;
         use std::path::Path;
 
-        let json = serde_json::to_vec_pretty(self).map_or_else(
-            |_| {
-                Err(StoreError::Unexpected(
-                    "Unable to serialize database.".to_string(),
-                ))
-            },
-            Ok,
-        )?;
+        let json = serde_json::to_vec_pretty(self)
+            .into_report()
+            .attach_printable_lazy(|| "failed to serialize database".to_string())
+            .change_context(IOError)
+            .change_context(StoreError)?;
 
-        fs::write(Path::new(FSS_PATH), &json).map_or_else(
-            |_| {
-                Err(StoreError::Unexpected(
-                    "Unable to write database to disk.".to_string(),
-                ))
-            },
-            |_| Ok(()),
-        )
+        fs::write(Path::new(FSS_PATH), &json)
+            .into_report()
+            .attach_printable_lazy(|| {
+                format!("failed to write serialized database to {FSS_PATH:?}")
+            })
+            .change_context(IOError)
+            .change_context(StoreError)?;
+
+        Ok(())
     }
 }
 
 impl Store {
-    pub fn query_packages<F, R>(&self, handler: F) -> R
+    /// Searches for [`PacBuild`]s based on the given query.
+    pub fn query_pacbuilds<F, R>(&self, handler: F) -> R
     where
-        F: Fn(Box<dyn Query<PacBuild, PacBuildQuery>>) -> R,
+        F: Fn(Box<dyn Queryable<PacBuild, PacBuildQuery>>) -> R,
     {
         let query_resolver = Box::new(PacBuildQueryResolver {
             packages: self.packages.clone(),
@@ -91,9 +100,10 @@ impl Store {
         handler(query_resolver)
     }
 
+    /// Searches for [`Repository`]s based on the given query.
     pub fn query_repositories<F, R>(&self, handler: F) -> R
     where
-        F: Fn(Box<dyn Query<Repository, RepositoryQuery>>) -> R,
+        F: Fn(Box<dyn Queryable<Repository, RepositoryQuery>>) -> R,
     {
         let query_resolver = Box::new(RepositoryQueryResolver {
             packages: self.packages.clone(),
@@ -103,10 +113,25 @@ impl Store {
         handler(query_resolver)
     }
 
+    /// Mutates [`PacBuild`]s based on the given query.
+    ///
     /// # Errors
-    pub fn mutate_packages<F, R>(&mut self, mut handler: F) -> StoreResult<R>
+    ///
+    /// The following errors may occur:
+    ///
+    /// - [`StoreError`](crate::store::errors::StoreError) - Wrapper for all the
+    ///   other [`Store`] errors
+    /// - [`EntityNotFoundError`](crate::store::errors::EntityNotFoundError) -
+    ///   When attempting to query a [`PacBuild`] or related entity that does
+    ///   not exist
+    /// - [`EntityAlreadyExistsError`](crate::store::errors::EntityAlreadyExistsError) - When attempting insert a [`PacBuild`] or related entity that already exists
+    /// - [`NoQueryMatchError`](crate::store::errors::NoQueryMatchError) - When
+    ///   attempting to remove a [`PacBuild`] that does not exist
+    /// - [`IOError`](crate::store::errors::IOError) - When attempting database
+    ///   export fails
+    pub fn mutate_pacbuilds<F, R>(&mut self, mut handler: F) -> StoreResult<R>
     where
-        F: FnMut(&mut dyn MutationQuery<PacBuild, PacBuildQuery>) -> StoreResult<R>,
+        F: FnMut(&mut dyn Mutable<PacBuild, PacBuildQuery>) -> StoreResult<R>,
     {
         let mut query_resolver = PacBuildQueryResolver {
             packages: self.packages.clone(),
@@ -121,10 +146,25 @@ impl Store {
         res
     }
 
+    /// Mutates [`Repository`]s based on the given query.
+    ///
     /// # Errors
+    ///
+    /// The following errors may occur:
+    ///
+    /// - [`StoreError`](crate::store::errors::StoreError) - Wrapper for all the
+    ///   other [`Store`] errors
+    /// - [`EntityNotFoundError`](crate::store::errors::EntityNotFoundError) -
+    ///   When attempting to query a [`Repository`] or related entity that does
+    ///   not exist
+    /// - [`EntityAlreadyExistsError`](crate::store::errors::EntityAlreadyExistsError) - When attempting insert a [`Repository`] or related entity that already exists
+    /// - [`NoQueryMatchError`](crate::store::errors::NoQueryMatchError) - When
+    ///   attempting to remove a [`Repository`] that does not exist
+    /// - [`IOError`](crate::store::errors::IOError) - When attempting database
+    ///   export fails
     pub fn mutate_repositories<F, R>(&mut self, mut handler: F) -> StoreResult<R>
     where
-        F: FnMut(&mut dyn MutationQuery<Repository, RepositoryQuery>) -> StoreResult<R>,
+        F: FnMut(&mut dyn Mutable<Repository, RepositoryQuery>) -> StoreResult<R>,
     {
         let mut query_resolver = RepositoryQueryResolver {
             packages: self.packages.clone(),
@@ -150,7 +190,7 @@ struct RepositoryQueryResolver {
     pub(super) packages: HashMap<String, Vec<PacBuild>>,
 }
 
-impl Query<Repository, RepositoryQuery> for RepositoryQueryResolver {
+impl Queryable<Repository, RepositoryQuery> for RepositoryQueryResolver {
     fn single(&self, query: RepositoryQuery) -> Option<Repository> {
         let all = self.find(query);
         all.first().cloned()
@@ -182,16 +222,19 @@ impl Query<Repository, RepositoryQuery> for RepositoryQueryResolver {
     }
 }
 
-impl MutationQuery<Repository, RepositoryQuery> for RepositoryQueryResolver {
+impl Mutable<Repository, RepositoryQuery> for RepositoryQueryResolver {
     fn insert(&mut self, entity: Repository) -> StoreResult<()> {
         let found = self.single(
-            RepositoryQuery::select_all()
+            RepositoryQuery::select()
                 .where_name(entity.name.as_str().into())
                 .where_url(entity.url.as_str().into()),
         );
 
         if found.is_some() {
-            return Err(StoreError::RepositoryConflict(entity.url));
+            return Err(Report::new(EntityAlreadyExistsError)
+                .attach_printable(format!("repository '{entity:?}' already exists"))
+                .change_context(EntityMutationError)
+                .change_context(StoreError));
         }
 
         self.repositories.push(entity);
@@ -200,11 +243,13 @@ impl MutationQuery<Repository, RepositoryQuery> for RepositoryQueryResolver {
     }
 
     fn update(&mut self, entity: Repository) -> StoreResult<()> {
-        let repo =
-            self.single(RepositoryQuery::select_all().where_url(entity.name.as_str().into()));
+        let repo = self.single(RepositoryQuery::select().where_url(entity.name.as_str().into()));
 
         if repo.is_none() {
-            return Err(StoreError::RepositoryNotFound(entity.url));
+            return Err(Report::new(EntityNotFoundError)
+                .attach_printable(format!("repository '{entity:?}' does not exist"))
+                .change_context(EntityMutationError)
+                .change_context(StoreError));
         }
 
         let found = repo.unwrap();
@@ -228,7 +273,10 @@ impl MutationQuery<Repository, RepositoryQuery> for RepositoryQueryResolver {
             .collect::<Vec<Repository>>();
 
         if to_remove.is_empty() {
-            return Err(StoreError::NoQueryMatch);
+            return Err(Report::new(NoQueryMatchError)
+                .attach_printable(format!("query '{query:?}' found no results"))
+                .change_context(EntityMutationError)
+                .change_context(StoreError));
         }
 
         let new_repos: Vec<Repository> = self
@@ -252,7 +300,7 @@ impl MutationQuery<Repository, RepositoryQuery> for RepositoryQueryResolver {
     }
 }
 
-impl Query<PacBuild, PacBuildQuery> for PacBuildQueryResolver {
+impl Queryable<PacBuild, PacBuildQuery> for PacBuildQueryResolver {
     fn single(&self, query: PacBuildQuery) -> Option<PacBuild> {
         let all = self.find(query);
         all.first().cloned()
@@ -285,27 +333,32 @@ impl Query<PacBuild, PacBuildQuery> for PacBuildQueryResolver {
     }
 }
 
-impl MutationQuery<PacBuild, PacBuildQuery> for PacBuildQueryResolver {
+impl Mutable<PacBuild, PacBuildQuery> for PacBuildQueryResolver {
     fn insert(&mut self, pacbuild: PacBuild) -> StoreResult<()> {
         if !self
             .repositories
             .iter()
             .any(|it| it.url == pacbuild.repository)
         {
-            return Err(StoreError::RepositoryNotFound(pacbuild.repository.clone()));
+            return Err(Report::new(EntityNotFoundError)
+                .attach_printable(format!(
+                    "repository of pacbuild {pacbuild:?} does not exist"
+                ))
+                .change_context(EntityMutationError)
+                .change_context(StoreError));
         }
 
         let found = self.single(
-            PacBuildQuery::select_all()
+            PacBuildQuery::select()
                 .where_name(pacbuild.name.as_str().into())
                 .where_repository_url(pacbuild.repository.as_str().into()),
         );
 
         if found.is_some() {
-            return Err(StoreError::PacBuildConflict {
-                name: pacbuild.name.clone(),
-                repository: pacbuild.repository.clone(),
-            });
+            return Err(Report::new(EntityAlreadyExistsError)
+                .attach_printable(format!("pacbuild {found:?} already exists"))
+                .change_context(EntityMutationError)
+                .change_context(StoreError));
         }
 
         if let Some(packages) = self.packages.get_mut(&pacbuild.repository) {
@@ -324,20 +377,27 @@ impl MutationQuery<PacBuild, PacBuildQuery> for PacBuildQueryResolver {
             .iter()
             .any(|it| it.url == pacbuild.repository)
         {
-            return Err(StoreError::RepositoryNotFound(pacbuild.repository));
+            return Err(Report::new(EntityNotFoundError)
+                .attach_printable(format!(
+                    "repository of pacbuild {pacbuild:?} does not exist"
+                ))
+                .change_context(EntityMutationError)
+                .change_context(StoreError));
         }
 
         let found = self.single(
-            PacBuildQuery::select_all()
+            PacBuildQuery::select()
                 .where_name(pacbuild.name.as_str().into())
                 .where_repository_url(pacbuild.repository.as_str().into()),
         );
 
         if found.is_none() {
-            return Err(StoreError::PacBuildNotFound {
-                name: pacbuild.name,
-                repository: pacbuild.repository,
-            });
+            return Err(Report::new(EntityNotFoundError)
+                .attach_printable(format!(
+                    "repository of pacbuild {pacbuild:?} does not exist"
+                ))
+                .change_context(EntityMutationError)
+                .change_context(StoreError));
         }
 
         let pkg = found.unwrap();
@@ -368,7 +428,10 @@ impl MutationQuery<PacBuild, PacBuildQuery> for PacBuildQueryResolver {
         if did_remove {
             Ok(())
         } else {
-            Err(StoreError::NoQueryMatch)
+            Err(Report::new(NoQueryMatchError)
+                .attach_printable(format!("query {query:?} found no results"))
+                .change_context(EntityMutationError)
+                .change_context(StoreError))
         }
     }
 }
@@ -412,7 +475,7 @@ mod test {
 
             fss.mutate_repositories(|store| store.insert(repo.clone()))
                 .unwrap();
-            fss.mutate_packages(|store| store.insert(pacbuild_to_add.clone()))
+            fss.mutate_pacbuilds(|store| store.insert(pacbuild_to_add.clone()))
                 .unwrap();
 
             (fss, repo, pacbuild_to_add)
@@ -422,8 +485,8 @@ mod test {
     #[test]
     fn new_creates_empty_fs_store() {
         let fss = Store::default();
-        let pacbuilds = fss.query_packages(|store| store.find(PacBuildQuery::select_all()));
-        let repos = fss.query_repositories(|store| store.find(RepositoryQuery::select_all()));
+        let pacbuilds = fss.query_pacbuilds(|store| store.find(PacBuildQuery::select()));
+        let repos = fss.query_repositories(|store| store.find(RepositoryQuery::select()));
 
         assert_eq!(pacbuilds.len(), 0);
         assert_eq!(repos.len(), 0);
@@ -435,7 +498,7 @@ mod test {
 
         fss.mutate_repositories(|store| store.insert(Repository::default()))
             .unwrap();
-        let repos = fss.query_repositories(|store| store.find(RepositoryQuery::select_all()));
+        let repos = fss.query_repositories(|store| store.find(RepositoryQuery::select()));
 
         assert_eq!(repos.len(), 1);
     }
@@ -449,7 +512,7 @@ mod test {
             .unwrap();
         let found_repo = fss
             .query_repositories(|store| {
-                store.single(RepositoryQuery::select_all().where_name(repo.name.as_str().into()))
+                store.single(RepositoryQuery::select().where_name(repo.name.as_str().into()))
             })
             .unwrap();
 
@@ -465,7 +528,7 @@ mod test {
             .unwrap();
         let found_repo = fss
             .query_repositories(|store| {
-                store.single(RepositoryQuery::select_all().where_url(repo.url.as_str().into()))
+                store.single(RepositoryQuery::select().where_url(repo.url.as_str().into()))
             })
             .unwrap();
 
@@ -475,7 +538,7 @@ mod test {
     #[test]
     fn add_pacbuild_works() {
         let (fss, ..) = util::create_store_with_sample_data();
-        let pbs = fss.query_packages(|store| store.find(PacBuildQuery::select_all()));
+        let pbs = fss.query_pacbuilds(|store| store.find(PacBuildQuery::select()));
 
         println!("{:#?}", pbs);
 
@@ -486,9 +549,9 @@ mod test {
     fn get_pacbuild_by_name_and_url_works() {
         let (fss, _, pacbuild) = util::create_store_with_sample_data();
         let found = fss
-            .query_packages(|store| {
+            .query_pacbuilds(|store| {
                 store.single(
-                    PacBuildQuery::select_all()
+                    PacBuildQuery::select()
                         .where_name(pacbuild.name.as_str().into())
                         .where_repository_url(pacbuild.repository.as_str().into()),
                 )
@@ -501,7 +564,7 @@ mod test {
     #[test]
     fn get_all_pacbuilds_works() {
         let (fss, ..) = util::create_store_with_sample_data();
-        let found = fss.query_packages(|store| store.find(PacBuildQuery::select_all()));
+        let found = fss.query_pacbuilds(|store| store.find(PacBuildQuery::select()));
 
         assert_eq!(found.len(), 1);
     }
@@ -509,10 +572,8 @@ mod test {
     #[test]
     fn get_all_pacbuilds_by_name_like_works() {
         let (fss, _, pb) = util::create_store_with_sample_data();
-        let found = fss.query_packages(|store| {
-            store.find(
-                PacBuildQuery::select_all().where_name(StringClause::Contains(pb.name.clone())),
-            )
+        let found = fss.query_pacbuilds(|store| {
+            store.find(PacBuildQuery::select().where_name(StringClause::Contains(pb.name.clone())))
         });
 
         assert_eq!(found.len(), 1);
@@ -521,9 +582,9 @@ mod test {
     #[test]
     fn get_all_pacbuilds_by_name_like_works_when_no_results() {
         let (fss, ..) = util::create_store_with_sample_data();
-        let found = fss.query_packages(|store| {
+        let found = fss.query_pacbuilds(|store| {
             store.find(
-                PacBuildQuery::select_all().where_name(StringClause::Contains("blablabla".into())),
+                PacBuildQuery::select().where_name(StringClause::Contains("blablabla".into())),
             )
         });
 
@@ -533,8 +594,8 @@ mod test {
     #[test]
     fn get_all_pacbuilds_by_install_state_works() {
         let (fss, ..) = util::create_store_with_sample_data();
-        let found = fss.query_packages(|store| {
-            store.find(PacBuildQuery::select_all().where_install_state(InstallState::Direct))
+        let found = fss.query_pacbuilds(|store| {
+            store.find(PacBuildQuery::select().where_install_state(InstallState::Direct))
         });
 
         assert_eq!(found.len(), 1);
@@ -543,8 +604,8 @@ mod test {
     #[test]
     fn get_all_pacbuilds_by_install_state_works_when_no_results() {
         let (fss, ..) = util::create_store_with_sample_data();
-        let found = fss.query_packages(|store| {
-            store.find(PacBuildQuery::select_all().where_install_state(InstallState::Indirect))
+        let found = fss.query_pacbuilds(|store| {
+            store.find(PacBuildQuery::select().where_install_state(InstallState::Indirect))
         });
 
         assert_eq!(found.len(), 0);
@@ -553,9 +614,8 @@ mod test {
     #[test]
     fn get_all_pacbuilds_by_kind_works() {
         let (fss, ..) = util::create_store_with_sample_data();
-        let found = fss.query_packages(|store| {
-            store.find(PacBuildQuery::select_all().where_kind(Kind::DebFile))
-        });
+        let found = fss
+            .query_pacbuilds(|store| store.find(PacBuildQuery::select().where_kind(Kind::DebFile)));
 
         assert_eq!(found.len(), 1);
     }
@@ -563,9 +623,8 @@ mod test {
     #[test]
     fn get_all_pacbuilds_by_kind_works_when_no_results() {
         let (fss, ..) = util::create_store_with_sample_data();
-        let found = fss.query_packages(|store| {
-            store.find(PacBuildQuery::select_all().where_kind(Kind::Binary))
-        });
+        let found = fss
+            .query_pacbuilds(|store| store.find(PacBuildQuery::select().where_kind(Kind::Binary)));
 
         assert_eq!(found.len(), 0);
     }
@@ -573,8 +632,8 @@ mod test {
     #[test]
     fn get_all_pacbuilds_by_repository_url_works() {
         let (fss, repo, _) = util::create_store_with_sample_data();
-        let found = fss.query_packages(|store| {
-            store.find(PacBuildQuery::select_all().where_repository_url(repo.url.as_str().into()))
+        let found = fss.query_pacbuilds(|store| {
+            store.find(PacBuildQuery::select().where_repository_url(repo.url.as_str().into()))
         });
 
         assert_eq!(found.len(), 1);
@@ -583,8 +642,8 @@ mod test {
     #[test]
     fn get_all_pacbuilds_by_repository_url_works_when_no_results() {
         let (fss, ..) = util::create_store_with_sample_data();
-        let found = fss.query_packages(|store| {
-            store.find(PacBuildQuery::select_all().where_repository_url("does not exist".into()))
+        let found = fss.query_pacbuilds(|store| {
+            store.find(PacBuildQuery::select().where_repository_url("does not exist".into()))
         });
 
         assert_eq!(found.len(), 0);
@@ -595,12 +654,12 @@ mod test {
         let (mut fss, _, mut pb) = util::create_store_with_sample_data();
         pb.description = "something else".into();
 
-        fss.mutate_packages(|query| query.update(pb.clone()))
+        fss.mutate_pacbuilds(|query| query.update(pb.clone()))
             .unwrap();
 
-        let results = fss.query_packages(|query| {
+        let results = fss.query_pacbuilds(|query| {
             query.find(
-                PacBuildQuery::select_all()
+                PacBuildQuery::select()
                     .where_name(pb.name.as_str().into())
                     .where_repository_url(pb.repository.as_str().into()),
             )
@@ -617,7 +676,7 @@ mod test {
         pb.name = "lala".into();
         pb.description = "something else".into();
 
-        fss.mutate_packages(|query| query.update(pb.clone()))
+        fss.mutate_pacbuilds(|query| query.update(pb.clone()))
             .unwrap();
     }
 
@@ -626,8 +685,8 @@ mod test {
     fn remove_pacbuild_panics_when_pacbuild_not_found() {
         let (mut fss, ..) = util::create_store_with_sample_data();
 
-        fss.mutate_packages(|query| {
-            query.remove(PacBuildQuery::select_all().where_name("asd".into()))
+        fss.mutate_pacbuilds(|query| {
+            query.remove(PacBuildQuery::select().where_name("asd".into()))
         })
         .unwrap();
     }
@@ -636,7 +695,7 @@ mod test {
     #[should_panic]
     fn add_pacbuild_panics_when_pacbuild_already_exists() {
         let (mut fss, _, pb) = util::create_store_with_sample_data();
-        fss.mutate_packages(|query| query.insert(pb.clone()))
+        fss.mutate_pacbuilds(|query| query.insert(pb.clone()))
             .unwrap();
     }
 }

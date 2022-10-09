@@ -6,20 +6,58 @@ use serde_derive::{Deserialize, Serialize};
 /// Representation of the PACBUILD file.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PacBuild {
+    /// PacBuild unique name per [`Repository`](crate::model::Repository).
     pub name: PackageId,
+
+    /// Last time it was changed.
     pub last_updated: DateTime,
+
+    /// [`Repository`](crate::model::Repository) url.
     pub repository: URL,
+
+    /// Maintainer name and possibly email.
+    ///
+    /// # Example
+    /// `Paul Cosma <paul.cosma97@gmail.com>`
     pub maintainer: String,
+
+    /// Canonical package name. Usually the `name` without the type extension.
+    ///
+    /// # Example
+    /// - `PacBuild { name: "discord-deb", package_name: "discord" }`
     pub package_name: String,
+
+    /// Short package description.
     pub description: String,
+
+    /// Official homepage [URL].
     pub homepage: URL,
+
+    /// Latest version fetched from Repology.
     pub repology_version: Version,
-    pub repology: URL,
+
+    /// Repology filter.
+    ///
+    /// # Example
+    /// **TBA**
+    pub repology: String,
+
+    /// Installation state.
     pub install_state: InstallState,
+
+    /// Runtime dependencies.
     pub dependencies: Vec<PackageId>,
+
+    /// Optional dependencies.
     pub optional_dependencies: Vec<PackageId>,
+
+    /// SPDX License.
     pub license: String,
+
+    /// Download [URL].
     pub url: URL,
+
+    /// [`PacBuild`] type, deduced from the name suffix.
     pub kind: Kind,
 }
 
@@ -102,18 +140,18 @@ impl InstallState {
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Kind {
-    /// [PacBuild] will install an `AppImage`.
+    /// [`PacBuild`] will install an `AppImage`.
     AppImage(Hash),
 
-    /// [PacBuild] will install a prebuilt, usually `tar.gz`, package.
+    /// [`PacBuild`] will install a prebuilt, usually `tar.gz`, package.
     Binary(Hash),
 
-    /// [PacBuild] will install an existing `.deb` file.
+    /// [`PacBuild`] will install an existing `.deb` file.
     DebFile(Hash),
 
-    /// [PacBuild] will install the source of a given Git branch.
+    /// [`PacBuild`] will install the source of a given Git branch.
     GitBranch,
 
-    /// [PacBuild] will install the source of a given Git release.
+    /// [`PacBuild`] will install the source of a given Git release.
     GitRelease,
 }
