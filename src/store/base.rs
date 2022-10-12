@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use error_stack::{IntoReport, Report, Result, ResultExt};
+use error_stack::{ensure, report, IntoReport, Result, ResultExt};
 use serde::{Deserialize, Serialize};
 
 use super::errors::{
@@ -230,12 +230,13 @@ impl Mutable<Repository, RepositoryQuery> for RepositoryQueryResolver {
                 .where_url(entity.url.as_str().into()),
         );
 
-        if found.is_some() {
-            return Err(Report::new(EntityAlreadyExistsError)
+        ensure!(
+            found.is_none(),
+            report!(EntityAlreadyExistsError)
                 .attach_printable(format!("repository '{entity:?}' already exists"))
                 .change_context(EntityMutationError)
-                .change_context(StoreError));
-        }
+                .change_context(StoreError)
+        );
 
         self.repositories.push(entity);
 
@@ -245,12 +246,13 @@ impl Mutable<Repository, RepositoryQuery> for RepositoryQueryResolver {
     fn update(&mut self, entity: Repository) -> StoreResult<()> {
         let repo = self.single(RepositoryQuery::select().where_url(entity.name.as_str().into()));
 
-        if repo.is_none() {
-            return Err(Report::new(EntityNotFoundError)
+        ensure!(
+            repo.is_some(),
+            report!(EntityNotFoundError)
                 .attach_printable(format!("repository '{entity:?}' does not exist"))
                 .change_context(EntityMutationError)
-                .change_context(StoreError));
-        }
+                .change_context(StoreError)
+        );
 
         let found = repo.unwrap();
         self.repositories.swap_remove(
@@ -265,19 +267,20 @@ impl Mutable<Repository, RepositoryQuery> for RepositoryQueryResolver {
     }
 
     fn remove(&mut self, query: RepositoryQuery) -> StoreResult<()> {
-        let to_remove: _ = self
+        let to_remove: Vec<Repository> = self
             .repositories
             .clone()
             .into_iter()
             .filter(|it| query.matches(it))
-            .collect::<Vec<Repository>>();
+            .collect();
 
-        if to_remove.is_empty() {
-            return Err(Report::new(NoQueryMatchError)
+        ensure!(
+            !to_remove.is_empty(),
+            report!(NoQueryMatchError)
                 .attach_printable(format!("query '{query:?}' found no results"))
                 .change_context(EntityMutationError)
-                .change_context(StoreError));
-        }
+                .change_context(StoreError)
+        );
 
         let new_repos: Vec<Repository> = self
             .repositories
@@ -335,18 +338,17 @@ impl Queryable<PacBuild, PacBuildQuery> for PacBuildQueryResolver {
 
 impl Mutable<PacBuild, PacBuildQuery> for PacBuildQueryResolver {
     fn insert(&mut self, pacbuild: PacBuild) -> StoreResult<()> {
-        if !self
-            .repositories
-            .iter()
-            .any(|it| it.url == pacbuild.repository)
-        {
-            return Err(Report::new(EntityNotFoundError)
+        ensure!(
+            self.repositories
+                .iter()
+                .any(|it| it.url == pacbuild.repository),
+            report!(EntityNotFoundError)
                 .attach_printable(format!(
                     "repository of pacbuild {pacbuild:?} does not exist"
                 ))
                 .change_context(EntityMutationError)
-                .change_context(StoreError));
-        }
+                .change_context(StoreError)
+        );
 
         let found = self.single(
             PacBuildQuery::select()
@@ -354,12 +356,13 @@ impl Mutable<PacBuild, PacBuildQuery> for PacBuildQueryResolver {
                 .where_repository_url(pacbuild.repository.as_str().into()),
         );
 
-        if found.is_some() {
-            return Err(Report::new(EntityAlreadyExistsError)
+        ensure!(
+            found.is_none(),
+            report!(EntityAlreadyExistsError)
                 .attach_printable(format!("pacbuild {found:?} already exists"))
                 .change_context(EntityMutationError)
-                .change_context(StoreError));
-        }
+                .change_context(StoreError)
+        );
 
         if let Some(packages) = self.packages.get_mut(&pacbuild.repository) {
             packages.push(pacbuild);
@@ -372,18 +375,17 @@ impl Mutable<PacBuild, PacBuildQuery> for PacBuildQueryResolver {
     }
 
     fn update(&mut self, pacbuild: PacBuild) -> StoreResult<()> {
-        if !self
-            .repositories
-            .iter()
-            .any(|it| it.url == pacbuild.repository)
-        {
-            return Err(Report::new(EntityNotFoundError)
+        ensure!(
+            self.repositories
+                .iter()
+                .any(|it| it.url == pacbuild.repository),
+            report!(EntityNotFoundError)
                 .attach_printable(format!(
                     "repository of pacbuild {pacbuild:?} does not exist"
                 ))
                 .change_context(EntityMutationError)
-                .change_context(StoreError));
-        }
+                .change_context(StoreError)
+        );
 
         let found = self.single(
             PacBuildQuery::select()
@@ -391,14 +393,15 @@ impl Mutable<PacBuild, PacBuildQuery> for PacBuildQueryResolver {
                 .where_repository_url(pacbuild.repository.as_str().into()),
         );
 
-        if found.is_none() {
-            return Err(Report::new(EntityNotFoundError)
+        ensure!(
+            found.is_some(),
+            report!(EntityNotFoundError)
                 .attach_printable(format!(
                     "repository of pacbuild {pacbuild:?} does not exist"
                 ))
                 .change_context(EntityMutationError)
-                .change_context(StoreError));
-        }
+                .change_context(StoreError)
+        );
 
         let pkg = found.unwrap();
         let repo = self.packages.get_mut(&pkg.repository).unwrap();
@@ -412,11 +415,11 @@ impl Mutable<PacBuild, PacBuildQuery> for PacBuildQueryResolver {
     fn remove(&mut self, query: PacBuildQuery) -> StoreResult<()> {
         let mut did_remove = false;
         for packages in &mut self.packages.values_mut() {
-            let pkgs: _ = packages
+            let pkgs: Vec<PacBuild> = packages
                 .iter()
                 .cloned()
                 .filter(|it| !query.matches(it))
-                .collect::<Vec<PacBuild>>();
+                .collect();
 
             if packages.len() != pkgs.len() {
                 did_remove = true;
@@ -425,14 +428,15 @@ impl Mutable<PacBuild, PacBuildQuery> for PacBuildQueryResolver {
             *packages = pkgs;
         }
 
-        if did_remove {
-            Ok(())
-        } else {
-            Err(Report::new(NoQueryMatchError)
+        ensure!(
+            did_remove,
+            report!(NoQueryMatchError)
                 .attach_printable(format!("query {query:?} found no results"))
                 .change_context(EntityMutationError)
-                .change_context(StoreError))
-        }
+                .change_context(StoreError)
+        );
+
+        Ok(())
     }
 }
 
