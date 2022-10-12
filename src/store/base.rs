@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::fs;
+use std::path::Path;
 
 use error_stack::{ensure, report, IntoReport, Result, ResultExt};
 use serde::{Deserialize, Serialize};
@@ -25,10 +27,13 @@ const FSS_PATH: &str = "/etc/pacstall/fss.json";
 const FSS_PATH: &str = "./fss.json";
 
 /// Store implementation for metadata caching.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Store {
     repositories: Vec<Repository>,
     packages: HashMap<String, Vec<PacBuild>>,
+
+    #[serde(skip)]
+    in_memory: bool,
 }
 
 impl Store {
@@ -43,9 +48,6 @@ impl Store {
     /// - [`IOError`](crate::store::errors::IOError) - When attempting database
     ///   import fails
     pub fn load() -> StoreResult<Self> {
-        use std::fs;
-        use std::path::Path;
-
         let contents = fs::read_to_string(Path::new(FSS_PATH))
             .into_report()
             .attach_printable_lazy(|| format!("failed to read file {FSS_PATH:?}"))
@@ -63,10 +65,19 @@ impl Store {
         Ok(obj)
     }
 
+    pub fn in_memory() -> Self {
+        Store {
+            repositories: Vec::new(),
+            packages: HashMap::new(),
+            in_memory: true,
+        }
+    }
+
     /// # Private
     fn save_to_disk(&self) -> StoreResult<()> {
-        use std::fs;
-        use std::path::Path;
+        if self.in_memory {
+            return Ok(());
+        }
 
         let json = serde_json::to_vec_pretty(self)
             .into_report()
@@ -454,7 +465,7 @@ mod test {
         use crate::store::base::Store;
 
         pub fn create_store_with_sample_data() -> (Store, Repository, PacBuild) {
-            let mut fss = Store::default();
+            let mut fss = Store::in_memory();
             let repo = Repository::default();
             let pacbuild_to_add = PacBuild {
                 name: "dummy-pacbuild-deb".into(),
@@ -488,7 +499,7 @@ mod test {
 
     #[test]
     fn new_creates_empty_fs_store() {
-        let fss = Store::default();
+        let fss = Store::in_memory();
         let pacbuilds = fss.query_pacbuilds(|store| store.find(PacBuildQuery::select()));
         let repos = fss.query_repositories(|store| store.find(RepositoryQuery::select()));
 
@@ -498,7 +509,7 @@ mod test {
 
     #[test]
     fn add_repository_works() {
-        let mut fss = Store::default();
+        let mut fss = Store::in_memory();
 
         fss.mutate_repositories(|store| store.insert(Repository::default()))
             .unwrap();
@@ -509,7 +520,7 @@ mod test {
 
     #[test]
     fn get_repository_by_name_works() {
-        let mut fss = Store::default();
+        let mut fss = Store::in_memory();
         let repo = Repository::default();
 
         fss.mutate_repositories(|store| store.insert(repo.clone()))
@@ -525,7 +536,7 @@ mod test {
 
     #[test]
     fn get_repository_by_url_works() {
-        let mut fss = Store::default();
+        let mut fss = Store::in_memory();
         let repo = Repository::default();
 
         fss.mutate_repositories(|store| store.insert(repo.clone()))
