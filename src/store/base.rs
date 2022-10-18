@@ -459,9 +459,11 @@ mod test {
     use crate::store::query_builder::{PacBuildQuery, RepositoryQuery, StringClause};
 
     mod util {
+        use std::collections::HashMap;
+
         use chrono::NaiveDateTime;
 
-        use crate::model::{InstallState, Kind, PacBuild, Repository};
+        use crate::model::{InstallState, Kind, PacBuild, Repository, Version};
         use crate::store::base::Store;
 
         pub fn create_store_with_sample_data() -> (Store, Repository, PacBuild) {
@@ -469,21 +471,29 @@ mod test {
             let repo = Repository::default();
             let pacbuild_to_add = PacBuild {
                 name: "dummy-pacbuild-deb".into(),
-                package_name: "dummy-pacbuild".into(),
+                package_names: vec!["dummy-pacbuild".to_string()],
                 description: "blah".into(),
                 dependencies: Vec::new(),
                 homepage: "https://example.com".into(),
                 install_state: InstallState::Direct(
                     NaiveDateTime::from_timestamp(chrono::Utc::now().timestamp(), 0),
-                    "1.0.0".into(),
+                    Version::single(1),
                 ),
                 kind: Kind::DebFile("hashash".into()),
                 last_updated: NaiveDateTime::from_timestamp(chrono::Utc::now().timestamp(), 0),
-                license: "BSD".into(),
-                maintainer: "saenai255".into(),
-                optional_dependencies: Vec::new(),
+                licenses: vec![String::from("BSD")],
+                maintainers: vec![String::from("saenai255")],
+                optional_dependencies: HashMap::new(),
                 repology: "filter".into(),
-                repology_version: "1.0.1".into(),
+                repology_version: Version::semver(1, 0, 1),
+                conflicts: Vec::new(),
+                epoch: 0,
+                groups: Vec::new(),
+                make_dependencies: Vec::new(),
+                package_base: None,
+                ppas: Vec::new(),
+                provides: Vec::new(),
+                replaces: Vec::new(),
                 repository: repo.url.clone(),
                 url: "https://example.com/dummy-pacbuild-1.0.0.deb".into(),
             };

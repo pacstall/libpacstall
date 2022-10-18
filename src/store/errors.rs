@@ -73,3 +73,13 @@ impl fmt::Display for EntityAlreadyExistsError {
 }
 
 impl Context for EntityAlreadyExistsError {}
+
+/// Error representation for invalid versions.
+#[derive(Debug, Clone)]
+pub struct InvalidVersionError;
+
+impl fmt::Display for InvalidVersionError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result { fmt.write_str("invalid version") }
+}
+
+impl Context for InvalidVersionError {}

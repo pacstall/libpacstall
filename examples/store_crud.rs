@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use chrono::NaiveDateTime;
 use error_stack::Result;
-use libpacstall::model::{InstallState, Kind, PacBuild, Repository};
+use libpacstall::model::{InstallState, Kind, PacBuild, Repository, Version};
 use libpacstall::store::base::Store;
 use libpacstall::store::errors::StoreError;
 use libpacstall::store::filters;
@@ -113,7 +115,7 @@ fn example_entity_update(store: &mut Store) -> Result<(), StoreError> {
 
     // Assume we installed it
     println!("\tWe update it so it looks like it is installed.");
-    pacbuild.install_state = InstallState::Direct(current_time(), String::from("1.0.0"));
+    pacbuild.install_state = InstallState::Direct(current_time(), Version::single(1));
     store.mutate_pacbuilds(|store| store.update(pacbuild.clone()))?;
     println!("\tUpdated pacbuild: {:#?}\n", pacbuild);
 
@@ -197,16 +199,24 @@ fn create_pacbuild(
         name,
         last_updated: current_time(),
         repository: repository_url,
-        maintainer: String::from(""),
-        package_name: String::from(""),
+        maintainers: Vec::new(),
+        package_names: Vec::new(),
         description: String::from(""),
         homepage: String::from(""),
-        repology_version: String::from(""),
+        repology_version: Version::single(1),
         repology: String::from(""),
         install_state,
         dependencies: Vec::new(),
-        optional_dependencies: Vec::new(),
-        license: String::from("MIT"),
+        optional_dependencies: HashMap::new(),
+        licenses: vec![String::from("MIT")],
+        conflicts: Vec::new(),
+        epoch: 0,
+        groups: Vec::new(),
+        make_dependencies: Vec::new(),
+        package_base: None,
+        ppas: Vec::new(),
+        provides: Vec::new(),
+        replaces: Vec::new(),
         url: String::from("https://pacbuild.pac"),
         kind,
     }
