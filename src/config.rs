@@ -35,6 +35,8 @@ use figment::value::{Dict, Map};
 use figment::{Error, Figment, Metadata, Profile, Provider};
 use serde::{Deserialize, Serialize};
 
+use crate::model::{default_repository, Repository};
+
 /// Pacstall's configuration.
 ///
 /// Gives access to the [configuration](Config) extracted, and the [Figment]
@@ -187,39 +189,6 @@ impl Default for Settings {
                 })
                 .unwrap_or_else(|| "nano".into()),
             jobs: num_cpus::get() as u8,
-        }
-    }
-}
-
-/// The extracted `repositories` array of tables.
-///
-/// Defaults to the official repository.
-#[derive(Deserialize, Debug, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Repository {
-    /// The name of the repository.
-    pub name: String,
-    /// URL of the repository.
-    ///
-    /// Note that the URL **isn't verified** during extraction!
-    pub url: String,
-    /// Preference of the repository.
-    ///
-    /// Specifies which repository to look into first during certain operations
-    /// like installing a package. If the package isn't present in the first
-    /// preferred repository, then the second preferred repository is looked
-    /// into.
-    pub preference: u32,
-}
-
-fn default_repository() -> Vec<Repository> { vec![Repository::default()] }
-
-impl Default for Repository {
-    fn default() -> Self {
-        Self {
-            name: "official".into(),
-            url: "https://github.com/pacstall/pacstall-programs".into(),
-            preference: 1,
         }
     }
 }

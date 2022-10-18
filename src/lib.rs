@@ -6,3 +6,5 @@
 )]
 #![allow(clippy::must_use_candidate)]
 pub mod config;
+pub mod model;
+pub mod store;
