@@ -57,7 +57,7 @@ tomli = { version = "^2.0.1", python = "<3.11" }
 black = "^22.3"
 codespell = "^2.1.0"
 isort = "^5.10.1"
-mypy = "^0.950"
+mypy = "^0.990"
 pre-commit = "^2.19.0"
 pyupgrade = "^2.32.1"
 pytest = "^7.1.2"
