@@ -1,47 +1,103 @@
+#![allow(clippy::match_on_vec_items)]
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::Command;
 
-use error_stack::{bail, ensure, report, IntoReport, Result, ResultExt};
+use miette::{Context, IntoDiagnostic, Report, SourceSpan};
+use regex::Regex;
+use semver::VersionReq;
 use spdx::Expression;
-use tree_sitter::{Parser, Query, QueryCursor};
+use strum::{Display, EnumString};
+use tree_sitter::{Node, Parser, Query, QueryCursor};
 
-use super::errors::{InvalidField, ParserError};
-use crate::parser::errors::MissingField;
+use super::errors::{BadSyntax, FieldError, MissingField, ParseError};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Pkgname(String);
 
 impl Pkgname {
-    pub fn new(name: &str) -> Result<Self, InvalidField> {
+    pub(crate) fn new(
+        name: &str,
+        field_node: &Node,
+        value_node: &Node,
+    ) -> Result<Self, FieldError> {
+        if name.trim().is_empty() {
+            return Err(FieldError {
+                field_label: "Cannot be empty".into(),
+                field_span: (
+                    field_node.start_byte(),
+                    field_node.end_byte() - field_node.start_byte(),
+                )
+                    .into(),
+                error_span: (
+                    value_node.start_byte(),
+                    value_node.end_byte() - value_node.start_byte(),
+                )
+                    .into(),
+                help: "Remove this empty field".into(),
+            });
+        }
         for (index, character) in name.chars().enumerate() {
             if index == 0 {
-                ensure!(
-                    character != '-',
-                    report!(InvalidField).attach_printable(format!(
-                        r#"`pkgname` ({name}) cannot start with a hyphen"#
-                    ))
-                );
+                if character == '-' {
+                    return Err(FieldError {
+                        field_label: "Cannot start with a hyphen ( - )".into(),
+                        field_span: (
+                            field_node.start_byte(),
+                            field_node.end_byte() - field_node.start_byte(),
+                        )
+                            .into(),
+                        error_span: (value_node.start_byte() + 1).into(),
+                        help: format!(
+                            "Use \x1b[0;32mpkgname=\"{}\"\x1b[0m instead",
+                            &name[1..name.len()]
+                        ),
+                    });
+                }
 
-                ensure!(
-                    character != '.',
-                    report!(InvalidField).attach_printable(format!(
-                        r#"`pkgname` ({name}) cannot start with a period"#
-                    ))
-                );
+                if character == '.' {
+                    return Err(FieldError {
+                        field_label: "Cannot start with a period ( . )".to_owned(),
+                        field_span: (
+                            field_node.start_byte(),
+                            field_node.end_byte() - field_node.start_byte(),
+                        )
+                            .into(),
+                        error_span: (value_node.start_byte() + 1).into(),
+                        help: format!(
+                            "Use \x1b[0;32mpkgname=\"{}\"\x1b[0m instead",
+                            &name[1..name.len()]
+                        ),
+                    });
+                }
             }
 
-            ensure!(
-                character.is_alphabetic() && character.is_lowercase()
-                    || character.is_numeric()
+            let check = |character: char| {
+                character.is_ascii_alphabetic() && character.is_lowercase()
+                    || character.is_ascii_digit()
                     || character == '@'
                     || character == '.'
                     || character == '_'
                     || character == '+'
-                    || character == '-',
-                report!(InvalidField).attach_printable(format!(
-                    r#"`pkgname` ({name}) can only contain lowercase alphanumerics or @._+-"#
-                ))
-            );
+                    || character == '-'
+            };
+
+            if !check(character) {
+                return Err(FieldError {
+                    field_label: "Can only contain lowercase, alphanumerics or @._+-".to_owned(),
+                    field_span: (
+                        field_node.start_byte(),
+                        field_node.end_byte() - field_node.start_byte(),
+                    )
+                        .into(),
+                    error_span: (value_node.start_byte() + 1 + index).into(),
+                    help: format!("Use \x1b[0;32mpkgname=\"{}\"\x1b[0m instead", {
+                        let mut name = name.to_owned();
+                        name.retain(check);
+                        name
+                    }),
+                });
+            }
         }
 
         Ok(Self(name.to_string()))
@@ -58,15 +114,22 @@ pub enum PkgverType {
 pub struct Pkgver(String);
 
 impl Pkgver {
-    pub fn new(version: &str) -> Result<Self, InvalidField> {
-        ensure!(
-            version.chars().all(|character| {
-                character.is_alphanumeric() || character == '.' || character == '_'
-            }),
-            report!(InvalidField).attach_printable(format!(
-                r#"`pkgver` ({version}) can only contain letters, numbers, periods, and underscores"#
-            ))
-        );
+    pub fn new(version: &str, field_node: &Node, value_node: &Node) -> Result<Self, FieldError> {
+        for (index, character) in version.chars().enumerate() {
+            if !(character.is_ascii_alphanumeric() || character == '.' || character == '_') {
+                return Err(FieldError {
+                    field_label: "Can only contain alphanumerics, periods and underscores"
+                        .to_owned(),
+                    field_span: (
+                        field_node.start_byte(),
+                        field_node.end_byte() - field_node.start_byte(),
+                    )
+                        .into(),
+                    error_span: (value_node.start_byte() + 1 + index).into(),
+                    help: "Remove the invalid characters".into(),
+                });
+            }
+        }
 
         Ok(Self(version.into()))
     }
@@ -75,35 +138,836 @@ impl Pkgver {
 #[derive(Debug, PartialEq, Eq)]
 pub struct Maintainer {
     name: String,
-    email: Option<String>,
+    emails: Option<Vec<String>>,
 }
 
 impl Maintainer {
-    pub fn new(maintainer: &str) -> Result<Self, InvalidField> {
-        let mut split: Vec<String> = maintainer.split(" <").map(ToString::to_string).collect();
-
-        ensure!(
-            split.len() <= 2,
-            report!(InvalidField).attach_printable(format!(
-                "`maintainer` ({maintainer}) can only contain a name and an email address"
-            ))
-        );
+    // FIXME: Proptest
+    pub fn new(maintainer: &str, field_node: &Node, value_node: &Node) -> Result<Self, FieldError> {
+        let mut split: Vec<String> = maintainer
+            .split_whitespace()
+            .map(ToString::to_string)
+            .collect();
 
         Ok(Self {
             name: match split.first() {
-                Some(name) => name.into(),
+                Some(name) => name.trim().into(),
                 None => {
-                    bail!(report!(InvalidField)
-                        .attach_printable(format!("`maintainer` ({maintainer}) is missing a name")))
+                    return Err(FieldError {
+                        field_label: "Needs a maintainer name".to_owned(),
+                        field_span: (
+                            field_node.start_byte(),
+                            field_node.end_byte() - field_node.start_byte(),
+                        )
+                            .into(),
+                        error_span: (value_node.start_byte() + 1).into(),
+                        help: "Add a maintainer name. This is usually your GitHub username".into(),
+                    });
                 },
             },
-            email: match split.last_mut() {
-                Some(email) => {
-                    email.pop(); // Removes the trailing `>`
-                    Some((*email).to_string())
-                },
-                None => None,
+            emails: {
+                if split.len() > 1 {
+                    let mut emails = vec![];
+                    for email in &mut split[1..] {
+                        if !email.ends_with('>') {
+                            return Err(FieldError {
+                                field_label: "Missing trailing >".to_owned(),
+                                field_span: (
+                                    field_node.start_byte(),
+                                    field_node.end_byte() - field_node.start_byte(),
+                                )
+                                    .into(),
+                                error_span: (value_node.end_byte() - 2).into(),
+                                help: "Add a trailing > to the email address".into(),
+                            });
+                        }
+                        let email = email.trim_matches(['<', '>'].as_ref());
+                        if email.is_empty() {
+                            return Err(FieldError {
+                                field_label: "Email address cannot be empty".to_owned(),
+                                field_span: (
+                                    field_node.start_byte(),
+                                    field_node.end_byte() - field_node.start_byte(),
+                                )
+                                    .into(),
+                                error_span: (
+                                    value_node.start_byte() + split[0].len() + 1,
+                                    value_node.end_byte()
+                                        - (value_node.start_byte() + split[0].len() + 2),
+                                )
+                                    .into(),
+                                help: "Add the email address".into(),
+                            });
+                        }
+
+                        emails.push((*email).to_string());
+                    }
+
+                    Some(emails)
+                } else {
+                    None
+                }
             },
+        })
+    }
+}
+
+impl ToString for Maintainer {
+    fn to_string(&self) -> String {
+        match &self.emails {
+            Some(emails) => {
+                let mut maintainer_string = self.name.clone();
+
+                for email in emails {
+                    maintainer_string.push_str(&format!(" <{email}>"));
+                }
+                maintainer_string
+            },
+            None => self.name.clone(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Dependency {
+    pub name: String,
+    pub version_req: Option<VersionReq>,
+}
+
+impl Dependency {
+    fn new(dependency: &str, field_node: &Node, value_node: &Node) -> Result<Self, FieldError> {
+        let split: Vec<&str> = dependency.split(':').collect();
+
+        let name = split[0].to_owned();
+
+        if !name.is_ascii() {
+            return Err(FieldError {
+                field_label: "Name has to be valid ASCII".to_owned(),
+                field_span: (
+                    field_node.start_byte(),
+                    field_node.end_byte() - field_node.start_byte(),
+                )
+                    .into(),
+                error_span: (
+                    value_node.start_byte() + 1,
+                    value_node.end_byte() - value_node.start_byte(),
+                )
+                    .into(),
+                help: "Try romanizing your dependency name.".to_owned(),
+            });
+        }
+
+        let version_req = match split.get(1) {
+            Some(req) => match VersionReq::parse(req.trim()) {
+                Ok(req) => Some(req),
+                Err(error) => {
+                    dbg!(req);
+                    return Err(FieldError {
+                        field_label: error.to_string(),
+                        field_span: (
+                            field_node.start_byte(),
+                            field_node.end_byte() - field_node.start_byte(),
+                        )
+                            .into(),
+                        error_span: (
+                            value_node.start_byte() + 1 + name.len() + 2,
+                            value_node.end_byte() - value_node.start_byte() - name.len() - 4,
+                        )
+                            .into(),
+                        help: "The version requirements syntax is defined here: https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html".into(),
+                    });
+                },
+            },
+            None => None,
+        };
+
+        Ok(Self { name, version_req })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct OptionalDependency {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+impl OptionalDependency {
+    fn new(
+        optional_dependency: &str,
+        field_node: &Node,
+        value_node: &Node,
+    ) -> Result<Self, FieldError> {
+        // package:i386: desc
+
+        // let Some(name, description) = optional_dependency.rsplit_once(":") else
+        // };
+
+        if optional_dependency.is_empty() {
+            return Err(FieldError {
+                field_label: "Cannot be empty".into(),
+                field_span: (
+                    field_node.start_byte(),
+                    field_node.end_byte() - field_node.start_byte(),
+                )
+                    .into(),
+                error_span: (
+                    value_node.start_byte(),
+                    value_node.end_byte() - value_node.start_byte(),
+                )
+                    .into(),
+                help: "Remove this empty field".into(),
+            });
+        }
+
+        let (name, description) = match optional_dependency.rsplit_once(':') {
+            Some((name, raw_description)) => {
+                // l:d l: d
+                // Remove the first leading space (` `) from the raw description, which is part
+                // of the syntax
+                let description = &raw_description[1..];
+                let trim_start_description = description.trim_start();
+                let trim_end_description = description.trim_end();
+                let trimmed_description = description.trim();
+
+                // Succeeds if the syntactic leading space wasn't present in the raw
+                // description
+                dbg!(description, raw_description);
+                if raw_description.starts_with(' ')
+                    && raw_description.chars().nth(1).unwrap() != ' '
+                {
+                    return Err(FieldError {
+                        field_label: "The syntactic leading space is missing".to_owned(),
+                        field_span: (
+                            field_node.start_byte(),
+                            field_node.end_byte() - field_node.start_byte(),
+                        )
+                            .into(),
+                        error_span: (
+                            value_node.start_byte() + 1 + name.len() + 2,
+                            description.len() - trim_start_description.len(),
+                        )
+                            .into(),
+                        help: format!(
+                            "Use this instead: \x1b[0;32m\"{name}: {trimmed_description}\"\x1b[0m"
+                        ),
+                    });
+                }
+
+                // Check for leading spaces
+                if trim_start_description != description {
+                    return Err(FieldError {
+                        field_label: "Extra leading spaces are invalid".to_owned(),
+                        field_span: (
+                            field_node.start_byte(),
+                            field_node.end_byte() - field_node.start_byte(),
+                        )
+                            .into(),
+                        error_span: (
+                            value_node.start_byte() + 1 + name.len() + 2,
+                            description.len() - trim_start_description.len(),
+                        )
+                            .into(),
+                        help: format!(
+                            "Use this instead: \x1b[0;32m\"{name}: {trimmed_description}\"\x1b[0m"
+                        ),
+                    });
+                }
+
+                // Check for trailing spaces
+                if description.trim_end() != description {
+                    return Err(FieldError {
+                        field_label: "Trailing spaces are invalid".to_owned(),
+                        field_span: (
+                            field_node.start_byte(),
+                            field_node.end_byte() - field_node.start_byte(),
+                        )
+                            .into(),
+
+                        error_span: (
+                            value_node.start_byte()
+                                + 1
+                                + name.len()
+                                + 2
+                                + trimmed_description.len(),
+                            description.len() - trim_end_description.len(),
+                        )
+                            .into(),
+                        help: format!(
+                            "Use this instead: \x1b[0;32m\"{name}: {trimmed_description}\"\x1b[0m"
+                        ),
+                    });
+                }
+
+                (name.to_owned(), Some(description.to_owned()))
+            },
+            None => (optional_dependency.to_owned(), None),
+        };
+
+        Ok(Self { name, description })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct PPA {
+    pub owner: String,
+    pub package: String,
+}
+
+impl PPA {
+    pub fn new(ppa: &str, field_node: &Node, value_node: &Node) -> Result<Self, FieldError> {
+        let split: Vec<&str> = ppa.split('/').collect();
+
+        if split.len() == 1 {
+            return Err(FieldError {
+                field_label: "Must contain the PPA in the format: owner/package".to_owned(),
+                field_span: (
+                    field_node.start_byte(),
+                    field_node.end_byte() - field_node.start_byte(),
+                )
+                    .into(),
+                error_span: (
+                    value_node.start_byte() + 1,
+                    value_node.end_byte() - (value_node.start_byte() + 2),
+                )
+                    .into(),
+                help: "Add the PPA in proper format. Example: kelleyk/emacs".into(),
+            });
+        }
+
+        Ok(Self {
+            owner: split[0].into(),
+            package: split[1].into(),
+        })
+    }
+}
+
+impl ToString for PPA {
+    fn to_string(&self) -> String { format!("{}/{}", self.owner, self.package) }
+}
+
+#[derive(Debug, PartialEq, Eq, EnumString, Display)]
+#[strum(serialize_all = "lowercase")]
+pub enum RepologyStatus {
+    Newest,
+    Devel,
+    Unique,
+    Outdated,
+    Legacy,
+    Rolling,
+    NoScheme,
+    Incorrect,
+    Untrusted,
+    Ignored,
+}
+
+#[derive(Debug, PartialEq, Eq, Display)]
+#[strum(serialize_all = "lowercase")]
+pub enum RepologyFilter {
+    Project(String),
+    Repo(String),
+    SubRepo(String),
+    Name(String),
+    SrcName(String),
+    BinName(String),
+    VisibleName(String),
+    Version(String),
+    OrigVersion(String),
+    Status(RepologyStatus),
+    Summary(String),
+}
+
+impl RepologyFilter {
+    #[allow(clippy::too_many_lines)]
+    fn new(
+        repology_filter: &str,
+        field_node: &Node,
+        value_node: &Node,
+    ) -> Result<Self, FieldError> {
+        let split: Vec<&str> = repology_filter.split(':').collect();
+
+        if split.len() != 2 {
+            return Err(FieldError {
+                field_label: "Must contain the repology filter in the format: `filter: value`"
+                    .into(),
+                field_span: (
+                    field_node.start_byte(),
+                    field_node.end_byte() - field_node.start_byte(),
+                )
+                    .into(),
+                error_span: (
+                    value_node.start_byte() + 1,
+                    value_node.end_byte() - value_node.start_byte() - 2,
+                )
+                    .into(),
+                help: "Add the repology filter in proper format. Example: `project: emacs`".into(),
+            });
+        }
+
+        // Verify the filter is properly formatted
+        if split[0].chars().any(char::is_whitespace) {
+            return Err(FieldError {
+                field_label: "Filter must not contain whitespaces".into(),
+                field_span: (
+                    field_node.start_byte(),
+                    field_node.end_byte() - field_node.start_byte(),
+                )
+                    .into(),
+                error_span: (value_node.start_byte() + 1, split[0].len()).into(),
+                help: format!(
+                    "Maybe you meant this instead: `{}`",
+                    split[0].replace(' ', "")
+                ),
+            });
+        }
+
+        // Verify that the value is properly formatted
+        if !split[1].starts_with(' ') {
+            return Err(FieldError {
+                field_label: "Value must start with a space".into(),
+                field_span: (
+                    field_node.start_byte(),
+                    field_node.end_byte() - field_node.start_byte(),
+                )
+                    .into(),
+                error_span: (value_node.start_byte() + split[0].len() + 2, 1).into(),
+                help: format!("Use this: `{}: {}`", split[0], split[1].trim()),
+            });
+        }
+
+        let Some(value) = split[1].get(1..) else {
+            return Err(FieldError {
+                field_label: "Value cannot be empty".into(),
+                field_span: (
+                    field_node.start_byte(),
+                    field_node.end_byte() - field_node.start_byte(),
+                )
+                    .into(),
+                error_span: (value_node.start_byte() + split[0].len() + 2, 1).into(),
+                help: "Add the repology filter in proper format. Example: `project: emacs`".into(),
+            });
+        };
+
+        let value = value.to_owned();
+
+        if value.trim().is_empty() {
+            return Err(FieldError {
+                field_label: "Value cannot be empty".into(),
+                field_span: (
+                    field_node.start_byte(),
+                    field_node.end_byte() - field_node.start_byte(),
+                )
+                    .into(),
+                error_span: (
+                    value_node.start_byte() + split[0].len() + 2,
+                    value.len() + 1,
+                )
+                    .into(),
+                help: "Add the repology filter in proper format. Example: `project: emacs`".into(),
+            });
+        }
+
+        if value.chars().any(char::is_whitespace) {
+            return Err(FieldError {
+                field_label: "Value must not contain whitespaces".into(),
+                field_span: (
+                    field_node.start_byte(),
+                    field_node.end_byte() - field_node.start_byte(),
+                )
+                    .into(),
+                error_span: (value_node.start_byte() + split[0].len() + 2, split[1].len()).into(),
+                help: format!(
+                    "Use this: `{}: {}`",
+                    split[0],
+                    split[1]
+                        .chars()
+                        .filter(|c| c.is_whitespace())
+                        .collect::<String>()
+                ),
+            });
+        }
+
+        let filter = match split[0] {
+            "project" => Self::Project(value),
+            "repo" => Self::Repo(value),
+            "subrepo" => Self::SubRepo(value),
+            "name" => Self::Name(value),
+            "srcname" => Self::SrcName(value),
+            "binname" => Self::BinName(value),
+            "visiblename" => Self::VisibleName(value),
+            "version" => Self::Version(value),
+            "origversion" => Self::OrigVersion(value),
+            "status" => Self::Status(match split[1].parse() {
+                Ok(status) => status,
+                Err(_) => {
+                    return Err(FieldError {
+                        field_label: "Invalid status".into(),
+                        field_span: (
+                            field_node.start_byte(),
+                            field_node.end_byte() - field_node.start_byte(),
+                        )
+                            .into(),
+                        error_span: (value_node.start_byte() + split[0].len() + 2, split[1].len())
+                            .into(),
+                        help: "Use one of `newest`, `devel`, `unique`, `outdated`, `legacy`, \
+                               `rolling`, `noscheme`, `incorrect`, `untrusted`, `ignored`"
+                            .into(),
+                    })
+                },
+            }),
+            "summary" => Self::Summary(value),
+            _ => {
+                return Err(FieldError {
+                    field_label: "Invalid filter".into(),
+                    field_span: (
+                        field_node.start_byte(),
+                        field_node.end_byte() - field_node.start_byte(),
+                    )
+                        .into(),
+                    error_span: (value_node.start_byte() + 1, split[0].len()).into(),
+                    help: "Use one of `project`, `repo`, `subrepo`, `name`, `srcname`, `binname`, \
+                           `visiblename`, `version`, `origversion`, `status`, `summary`"
+                        .to_owned(),
+                });
+            },
+        };
+
+        Ok(filter)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum GitFragment {
+    Branch(String),
+    Commit(String),
+    Tag(String),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum GitSource {
+    File(PathBuf),
+    HTTPS(String),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum SourceLink {
+    HTTPS(String),
+    Git {
+        source_type: GitSource,
+        fragment: Option<GitFragment>,
+        query_signed: bool,
+    },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Source {
+    pub name: Option<String>,
+    pub link: SourceLink,
+    pub repology: bool,
+}
+
+impl Source {
+    #[allow(clippy::too_many_lines)]
+    fn new(source: &str, field_node: &Node, value_node: &Node) -> Result<Self, FieldError> {
+        let field_span: SourceSpan = (
+            field_node.start_byte(),
+            field_node.end_byte() - field_node.start_byte(),
+        )
+            .into();
+        let split: Vec<&str> = source.split("::").collect();
+
+        let mut raw_repology = None;
+        let mut name = None;
+        let mut link = String::new();
+        let mut repology = false;
+        match split.len() {
+            1 => {
+                link = split[0].to_owned();
+            },
+            2 => {
+                if split[0].contains("://") {
+                    link = split[0].to_owned();
+                    raw_repology = Some(split[1]);
+                } else {
+                    name = Some(split[0].to_owned());
+                    link = split[1].to_owned();
+                }
+            },
+            3 => {
+                name = Some(split[0].to_owned());
+                link = split[1].to_owned();
+                raw_repology = Some(split[2]);
+
+                repology = true;
+            },
+            _ => todo!(),
+        };
+
+        // Repology checks
+        if let Some(raw_repology) = raw_repology {
+            if raw_repology != "repology" {
+                if raw_repology.chars().any(char::is_whitespace) {
+                    let whitespace_characters = raw_repology
+                        .chars()
+                        .skip_while(|c| !c.is_whitespace())
+                        .take_while(|c| c.is_whitespace())
+                        .count();
+
+                    let characters_until_whitespaces = raw_repology
+                        .chars()
+                        .take_while(|c| !c.is_whitespace())
+                        .count();
+
+                    return Err(FieldError {
+                        field_label: "Invalid whitespaces".into(),
+                        field_span,
+                        error_span: (
+                            value_node.start_byte()
+                                + ((source.len() - raw_repology.len()) + 1)
+                                + characters_until_whitespaces,
+                            whitespace_characters,
+                        )
+                            .into(),
+                        help: format!(
+                            "Remove the invalid whitespaces. You probably meant this instead: \
+                             `{}::{}::repology`",
+                            split[0], split[1]
+                        ),
+                    });
+                }
+
+                return Err(FieldError {
+                    field_label: if raw_repology.is_empty() {
+                        "Missing repology key".into()
+                    } else {
+                        "Invalid key".into()
+                    },
+                    field_span,
+                    error_span: (
+                        value_node.start_byte() + (source.len() - raw_repology.len() + 1),
+                        raw_repology.len(),
+                    )
+                        .into(),
+                    help: format!(
+                        "Maybe you meant to use the repology key, like this: `{}::{}::repology`",
+                        split[0], split[1]
+                    ),
+                });
+            }
+            repology = true;
+        }
+
+        // Link checks
+        let whitespace_characters = link
+            .chars()
+            .skip_while(|c| !c.is_whitespace())
+            .take_while(|c| c.is_whitespace())
+            .count();
+
+        if whitespace_characters > 0 {
+            let characters_until_whitespaces =
+                link.chars().take_while(|c| !c.is_whitespace()).count();
+
+            return Err(FieldError {
+                field_label: "Invalid whitespaces".into(),
+                field_span,
+                error_span: (
+                    value_node.start_byte()
+                        + 1
+                        + name.map_or(0, |name| name.len() + 2)
+                        + characters_until_whitespaces,
+                    whitespace_characters,
+                )
+                    .into(),
+                help: format!(
+                    "Remove the invalid whitespaces. You probably meant this instead: `{}`",
+                    link.chars()
+                        .filter(|c| !c.is_whitespace())
+                        .collect::<String>()
+                ),
+            });
+        }
+
+        let protocol_split = link.split("://").collect::<Vec<_>>();
+
+        if protocol_split.len() != 2 {
+            return Err(FieldError {
+                field_label: "No protocol specified".into(),
+                field_span: (
+                    field_node.start_byte(),
+                    field_node.end_byte() - field_node.start_byte(),
+                )
+                    .into(),
+                error_span: (
+                    value_node.start_byte(),
+                    value_node.end_byte() - value_node.start_byte(),
+                )
+                    .into(),
+                help: "Use one of `https`, `git`, `magnet`, `ftp`".into(),
+            });
+        }
+
+        let (protocol, link_without_protocol) = (protocol_split[0], protocol_split[1]);
+
+        let link = link_without_protocol
+            .find(['#', '?'])
+            .map_or(link_without_protocol, |i| &link_without_protocol[..i]);
+
+        let protocol = match protocol {
+            "https" => SourceLink::HTTPS(link.to_owned()),
+            git if git.starts_with("git") => SourceLink::Git {
+                source_type: {
+                    let split: Vec<_> = protocol.split('+').collect();
+
+                    if split.len() != 2 {
+                        return Err(FieldError {
+                            field_label: "No git protocol
+                    specified"
+                                .into(),
+                            field_span: (
+                                field_node.start_byte(),
+                                field_node.end_byte() - field_node.start_byte(),
+                            )
+                                .into(),
+                            error_span: (
+                                value_node.start_byte(),
+                                value_node.end_byte() - value_node.start_byte(),
+                            )
+                                .into(),
+                            help: "Specify a git protocol like:
+                    `git+https` or `git+file`"
+                                .into(),
+                        });
+                    }
+
+                    match split[1] {
+                        "https" => GitSource::HTTPS(link.to_owned()),
+                        "file" => {
+                            let repo_dir = PathBuf::from(link);
+                            if !repo_dir.exists() {
+                                todo!("Repository doesn't exist");
+                            }
+                            if !repo_dir.is_dir() {
+                                todo!("Repository isn't a directory");
+                            }
+                            GitSource::File(repo_dir)
+                        },
+                        _ => {
+                            return Err(FieldError {
+                                field_label: "Invalid git
+                    protocol"
+                                    .into(),
+                                field_span: (
+                                    field_node.start_byte(),
+                                    field_node.end_byte() - field_node.start_byte(),
+                                )
+                                    .into(),
+                                error_span: (
+                                    value_node.start_byte(),
+                                    value_node.end_byte() - value_node.start_byte(),
+                                )
+                                    .into(),
+                                help: "Specify a git protocol like:
+                    `git+https` or `git+file`"
+                                    .into(),
+                            });
+                        },
+                    }
+                },
+                fragment: {
+                    match link_without_protocol.matches('#').count() {
+                        2.. => todo!("Invalid number of #"),
+                        1 => {
+                            let fragment = &link_without_protocol
+                                .get(
+                                    link_without_protocol.find('#').unwrap()
+                                        ..link_without_protocol
+                                            .find('?')
+                                            .unwrap_or(link_without_protocol.len() - 1),
+                                )
+                                .unwrap_or_else(|| todo!("Invalid sequence, ? before #"));
+
+                            let split: Vec<&str> = fragment.split('=').collect();
+
+                            if split.len() > 2 {
+                                todo!("Invalid number of =");
+                            }
+
+                            let (fragment_type, value) = (&split[0][1..], split[1].to_owned());
+
+                            match fragment_type {
+                                "branch" => Some(GitFragment::Branch(value)),
+                                "tag" => Some(GitFragment::Tag(value)),
+                                "commit" => Some(GitFragment::Commit(value)),
+                                _ => todo!("Invalid fragment"),
+                            }
+                        },
+                        0 => None,
+                        _ => unreachable!("Broke math"),
+                    }
+                },
+                query_signed: {
+                    match link_without_protocol.matches('?').count() {
+                        2.. => todo!("Invalid number of ?"),
+                        1 => {
+                            let query =
+                                &link_without_protocol[link_without_protocol.find('?').unwrap() + 1
+                                    ..=std::cmp::max(
+                                        link_without_protocol.find('#').unwrap_or(0),
+                                        link_without_protocol.len() - 1,
+                                    )];
+
+                            match query {
+                                "signed" => true,
+                                _ => todo!("Invalid query"),
+                            }
+                        },
+                        0 => false,
+                        _ => unreachable!("Broke math"),
+                    }
+                },
+            },
+            _ => {
+                return Err(FieldError {
+                    field_label: "Invalid protocol".into(),
+                    field_span: (
+                        field_node.start_byte(),
+                        field_node.end_byte() - field_node.start_byte(),
+                    )
+                        .into(),
+                    error_span: (
+                        value_node.start_byte(),
+                        value_node.end_byte() - value_node.start_byte(),
+                    )
+                        .into(),
+                    help: "Specify a git protocol like: `https`, `git+https`, `git+file`, \
+                           `magnet` or `ftp`"
+                        .into(),
+                });
+            },
+        };
+
+        match &protocol {
+            SourceLink::Git {
+                source_type: GitSource::File(_),
+                fragment: _,
+                query_signed: _,
+            } => {},
+            _ => {
+                if !Regex::new(
+                    r"(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)",
+                )
+                .unwrap()
+                .is_match(link_without_protocol)
+                {
+                    todo!("Invalid URL SIR");
+                }
+            },
+        }
+
+        Ok(Self {
+            repology,
+            name,
+            link: protocol,
         })
     }
 }
@@ -125,6 +989,12 @@ pub struct PacBuild {
     pub sha348sums: Option<HashMap<String, Vec<Option<String>>>>,
     pub sha512sums: Option<HashMap<String, Vec<Option<String>>>>,
     pub b2sums: Option<HashMap<String, Vec<Option<String>>>>,
+    pub depends: Option<Vec<Dependency>>,
+    pub optdepends: Option<Vec<OptionalDependency>>,
+    pub ppa: Option<Vec<PPA>>,
+    pub repology: Option<Vec<RepologyFilter>>,
+    pub sources: Vec<Source>,
+
     pub prepare: Option<String>,
     pub build: Option<String>,
     pub check: Option<String>,
@@ -149,7 +1019,7 @@ impl PacBuild {
     }
 
     #[allow(clippy::too_many_lines)]
-    pub fn from_source(source_code: &str) -> Result<Self, ParserError> {
+    pub fn from_source(source_code: &str) -> Result<Self, ParseError> {
         let mut pkgname: Option<Vec<Pkgname>> = None;
         let mut pkgver: Option<PkgverType> = None;
         let mut epoch: Option<u32> = None;
@@ -165,6 +1035,11 @@ impl PacBuild {
         let mut sha348sums: Option<HashMap<String, Vec<Option<String>>>> = None;
         let mut sha512sums: Option<HashMap<String, Vec<Option<String>>>> = None;
         let mut b2sums: Option<HashMap<String, Vec<Option<String>>>> = None;
+        let mut depends: Option<Vec<Dependency>> = None;
+        let mut optdepends: Option<Vec<OptionalDependency>> = None;
+        let mut ppa: Option<Vec<PPA>> = None;
+        let mut repology: Option<Vec<RepologyFilter>> = None;
+        let mut sources: Option<Vec<Source>> = None;
 
         let mut prepare: Option<String> = None;
         let mut build: Option<String> = None;
@@ -187,19 +1062,24 @@ impl PacBuild {
             .output()
             .unwrap();
 
-        ensure!(
-            sourced_code.status.success(),
-            report!(ParserError).attach_printable(String::from_utf8(sourced_code.stderr).unwrap())
-        );
+        // dbg!(String::from_utf8(sourced_code.stderr.clone()).unwrap());
+
+        let mut errors: Vec<Report> = vec![];
+
+        if !sourced_code.status.success() {
+            errors.push(Report::new_boxed(Box::new(BadSyntax {})));
+        }
 
         let mut parser = Parser::new();
 
         parser.set_language(tree_sitter_bash::language()).unwrap();
 
-        let tree = match parser.parse(sourced_code.stdout.clone(), None) {
-            Some(tree) => tree,
-            None => bail!(ParserError),
-        };
+        let Some(tree) = parser.parse(sourced_code.stdout.clone(), None) else { {
+                return Err(ParseError {
+                    input: source_code.into(),
+                    related: vec![Report::new_boxed(Box::new(BadSyntax {}))],
+                })
+            } };
 
         let mut query = QueryCursor::new();
 
@@ -228,60 +1108,73 @@ impl PacBuild {
                     match capture.index {
                         // Variable name
                         0 => {
-                            let name = query_match.captures[0]
-                                .node
-                                .utf8_text(&sourced_code.stdout)
-                                .unwrap();
+                            let field_node = query_match.captures[0].node;
+                            let name = field_node.utf8_text(&sourced_code.stdout).unwrap();
 
                             let index = query_match.captures[1].index;
 
                             match index {
                                 // It's a normal variable.
                                 2 => {
+                                    let value_node = query_match.captures[1].node;
                                     let value = Self::cleanup_rawstring(
-                                        query_match.captures[1]
-                                            .node
-                                            .utf8_text(&sourced_code.stdout)
-                                            .unwrap(),
+                                        value_node.utf8_text(&sourced_code.stdout).unwrap(),
                                     );
 
                                     match name {
                                         "pkgname" => {
-                                            pkgname =
-                                                Some(vec![Pkgname::new(value)
-                                                    .change_context(ParserError)?]);
+                                            match Pkgname::new(value, &field_node, &value_node) {
+                                                Ok(name) => pkgname = Some(vec![name]),
+                                                Err(error) => {
+                                                    errors.push(Report::new_boxed(Box::new(error)));
+                                                },
+                                            };
                                         },
                                         "pkgver" => {
-                                            pkgver = Some(PkgverType::Variable(
-                                                Pkgver::new(value).change_context(ParserError)?,
-                                            ));
+                                            match Pkgver::new(value, &field_node, &value_node) {
+                                                Ok(ver) => pkgver = Some(PkgverType::Variable(ver)),
+                                                Err(error) => {
+                                                    errors.push(Report::new_boxed(Box::new(error)));
+                                                },
+                                            };
                                         },
                                         "epoch" => {
-                                            epoch = Some(
-                                                value
-                                                    .parse()
-                                                    .into_report()
-                                                    .change_context(InvalidField)
-                                                    .attach_printable_lazy(|| {
-                                                        format!(
-                                                            "`epoch` ({value} can only be a \
-                                                             non-negative integer"
+                                            match value.parse() {
+                                                Ok(value) => epoch = Some(value),
+                                                Err(_error) => errors.push(Report::new_boxed(
+                                                    Box::new(FieldError {
+                                                        field_label: "Can only be a non-negative \
+                                                                      integer"
+                                                            .to_owned(),
+                                                        field_span: (
+                                                            field_node.start_byte(),
+                                                            field_node.end_byte()
+                                                                - field_node.start_byte(),
                                                         )
-                                                    })
-                                                    .change_context(ParserError)?,
-                                            );
+                                                            .into(),
+                                                        error_span: (
+                                                            value_node.start_byte() + 1,
+                                                            value_node.end_byte()
+                                                                - value_node.start_byte()
+                                                                - 2,
+                                                        )
+                                                            .into(),
+                                                        help: "Use a non-negative epoch".into(),
+                                                    }),
+                                                )),
+                                            };
                                         },
                                         "pkgdesc" => {
                                             pkgdesc = Some(value.into());
                                         },
                                         "license" => {
-                                            license = Some(
-                                                Expression::parse(value)
-                                                    .into_report()
-                                                    .change_context(InvalidField)
-                                                    .attach_printable("`license is invalid`")
-                                                    .change_context(ParserError)?,
-                                            );
+                                            match Expression::parse(value)
+                                                .into_diagnostic()
+                                                .context("Invalid license field")
+                                            {
+                                                Ok(expr) => license = Some(expr),
+                                                Err(error) => errors.push(error),
+                                            };
                                         },
                                         "url" => {
                                             url = Some(value.into());
@@ -301,11 +1194,9 @@ impl PacBuild {
                                 },
                                 // Array
                                 1 => {
+                                    let value_node = query_match.captures[1].node;
                                     let value = Self::cleanup_rawstring(
-                                        query_match.captures[1]
-                                            .node
-                                            .utf8_text(&sourced_code.stdout)
-                                            .unwrap(),
+                                        value_node.utf8_text(&sourced_code.stdout).unwrap(),
                                     );
 
                                     match name {
@@ -314,13 +1205,28 @@ impl PacBuild {
                                             None => arch = Some(vec![value.into()]),
                                         },
                                         "maintainer" => match &mut maintainer {
-                                            Some(maintainer) => maintainer.push(
-                                                Maintainer::new(value)
-                                                    .change_context(ParserError)?,
-                                            ),
+                                            Some(maintainer_vec) => match Maintainer::new(
+                                                value,
+                                                &field_node,
+                                                &value_node,
+                                            ) {
+                                                Ok(maintainer) => maintainer_vec.push(maintainer),
+                                                Err(error) => {
+                                                    errors.push(Report::new_boxed(Box::new(error)));
+                                                },
+                                            },
                                             None => {
-                                                maintainer = Some(vec![Maintainer::new(value)
-                                                    .change_context(ParserError)?]);
+                                                match Maintainer::new(
+                                                    value,
+                                                    &field_node,
+                                                    &value_node,
+                                                ) {
+                                                    Ok(a_maintainer) => {
+                                                        maintainer = Some(vec![a_maintainer]);
+                                                    },
+                                                    Err(error) => errors
+                                                        .push(Report::new_boxed(Box::new(error))),
+                                                };
                                             },
                                         },
                                         "noextract" => match &mut noextract {
@@ -479,6 +1385,121 @@ impl PacBuild {
                                                 },
                                             }
                                         },
+                                        "depends" => match &mut depends {
+                                            Some(depends_vec) => {
+                                                match Dependency::new(
+                                                    value,
+                                                    &field_node,
+                                                    &value_node,
+                                                ) {
+                                                    Ok(dependency) => depends_vec.push(dependency),
+                                                    Err(error) => errors
+                                                        .push(Report::new_boxed(Box::new(error))),
+                                                }
+                                            },
+                                            None => {
+                                                match Dependency::new(
+                                                    value,
+                                                    &field_node,
+                                                    &value_node,
+                                                ) {
+                                                    Ok(dependency) => {
+                                                        depends = Some(vec![dependency]);
+                                                    },
+                                                    Err(error) => errors
+                                                        .push(Report::new_boxed(Box::new(error))),
+                                                }
+                                            },
+                                        },
+                                        "optdepends" => match &mut optdepends {
+                                            Some(optdepends_vec) => {
+                                                match OptionalDependency::new(
+                                                    value,
+                                                    &field_node,
+                                                    &value_node,
+                                                ) {
+                                                    Ok(optional_dependency) => {
+                                                        optdepends_vec.push(optional_dependency);
+                                                    },
+                                                    Err(error) => errors
+                                                        .push(Report::new_boxed(Box::new(error))),
+                                                }
+                                            },
+                                            None => {
+                                                match OptionalDependency::new(
+                                                    value,
+                                                    &field_node,
+                                                    &value_node,
+                                                ) {
+                                                    Ok(optional_dependency) => {
+                                                        optdepends =
+                                                            Some(vec![optional_dependency]);
+                                                    },
+                                                    Err(error) => errors
+                                                        .push(Report::new_boxed(Box::new(error))),
+                                                }
+                                            },
+                                        },
+                                        "ppa" => match &mut ppa {
+                                            Some(ppa_vec) => {
+                                                match PPA::new(value, &field_node, &value_node) {
+                                                    Ok(ppa) => ppa_vec.push(ppa),
+                                                    Err(error) => errors
+                                                        .push(Report::new_boxed(Box::new(error))),
+                                                }
+                                            },
+                                            None => {
+                                                match PPA::new(value, &field_node, &value_node) {
+                                                    Ok(a_ppa) => ppa = Some(vec![a_ppa]),
+                                                    Err(error) => errors
+                                                        .push(Report::new_boxed(Box::new(error))),
+                                                };
+                                            },
+                                        },
+                                        "repology" => match &mut repology {
+                                            Some(repology_vec) => {
+                                                match RepologyFilter::new(
+                                                    value,
+                                                    &field_node,
+                                                    &value_node,
+                                                ) {
+                                                    Ok(repology_filter) => {
+                                                        repology_vec.push(repology_filter);
+                                                    },
+                                                    Err(error) => errors
+                                                        .push(Report::new_boxed(Box::new(error))),
+                                                }
+                                            },
+                                            None => {
+                                                match RepologyFilter::new(
+                                                    value,
+                                                    &field_node,
+                                                    &value_node,
+                                                ) {
+                                                    Ok(repology_filter) => {
+                                                        repology = Some(vec![repology_filter]);
+                                                    },
+                                                    Err(error) => errors
+                                                        .push(Report::new_boxed(Box::new(error))),
+                                                };
+                                            },
+                                        },
+                                        "sources" => match &mut sources {
+                                            Some(sources_vec) => {
+                                                match Source::new(value, &field_node, &value_node) {
+                                                    Ok(source) => sources_vec.push(source),
+                                                    Err(error) => errors
+                                                        .push(Report::new_boxed(Box::new(error))),
+                                                }
+                                            },
+                                            None => {
+                                                match Source::new(value, &field_node, &value_node) {
+                                                    Ok(source) => sources = Some(vec![source]),
+                                                    Err(error) => errors
+                                                        .push(Report::new_boxed(Box::new(error))),
+                                                };
+                                            },
+                                        },
                                         _ => {},
                                     }
                                 },
@@ -524,25 +1545,54 @@ impl PacBuild {
             }
         }
 
-        let pkgname = match pkgname {
-            Some(pkgname) => pkgname,
-            None => bail!(report!(MissingField)
-                .attach_printable("`pkgname` is missing")
-                .change_context(ParserError)),
+        if !errors.is_empty() {
+            return Err(ParseError {
+                input: String::from_utf8(sourced_code.stdout).unwrap(),
+                related: errors,
+            });
+        }
+
+        let Some(pkgname) = pkgname else {
+            return Err(ParseError {
+                input: String::from_utf8(sourced_code.stdout).unwrap(),
+                related: {
+                    errors.push(Report::new_boxed(Box::new(MissingField {
+                        label: "pkgname is missing",
+                    })));
+                    errors
+                },
+            });
         };
 
-        let pkgver = match pkgver {
-            Some(pkgver) => pkgver,
-            None => bail!(report!(MissingField)
-                .attach_printable("`pkgver` is missing")
-                .change_context(ParserError)),
+        let Some(pkgver) = pkgver else {
+            return Err(ParseError {
+                input: String::from_utf8(sourced_code.stdout).unwrap(),
+                related: {
+                    errors.push(Report::new_boxed(Box::new(MissingField {
+                        label: "pkgver is missing",
+                    })));
+                    errors
+                },
+            });
         };
 
-        let arch = match arch {
-            Some(arch) => arch,
-            None => bail!(report!(MissingField)
-                .attach_printable("`arch` is missing")
-                .change_context(ParserError)),
+        let Some(arch) = arch else {
+            return Err(ParseError {
+                input: String::from_utf8(sourced_code.stdout).unwrap(),
+                related: {
+                    errors.push(Report::new_boxed(Box::new(MissingField {
+                        label: "pkgver is missing",
+                    })));
+                    errors
+                },
+            });
+        };
+
+        let Some(sources) = sources else {
+            return Err(ParseError {
+                input: String::from_utf8(sourced_code.stdout).unwrap(),
+            related: { errors.push(Report::new_boxed(Box::new(MissingField { label: "source is missing"}))); errors},
+            });
         };
 
         // TODO: Possibly check if checksum and sources lengths match
@@ -553,8 +1603,8 @@ impl PacBuild {
             epoch,
             pkgdesc,
             url,
-            custom_variables,
             license,
+            custom_variables,
             arch,
             maintainer,
             noextract,
@@ -562,6 +1612,11 @@ impl PacBuild {
             sha348sums,
             sha512sums,
             b2sums,
+            depends,
+            optdepends,
+            ppa,
+            repology,
+            sources,
             prepare,
             build,
             check,
@@ -581,288 +1636,408 @@ impl PacBuild {
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
+    use proptest::prelude::*;
 
     use super::*;
 
-    #[rstest]
-    #[case("-package12@._+-")]
-    #[case(".package12@._+-")]
-    #[case("Package12@._+-")]
-    #[should_panic]
-    fn invalid_pkgnames(#[case] test_case: &str) { Pkgname::new(test_case).unwrap(); }
+    proptest! {
+        #[test]
+        fn test_pkgname(name in r#"[a-z0-9@_+]+[a-z0-9@._+-]+"#) {
+            let mut parser = Parser::new();
+            parser.set_language(tree_sitter_bash::language()).unwrap();
+            let tree = parser.parse(b"test", None).unwrap();
+            let parent = tree.root_node();
 
-    #[test]
-    fn valid_pkgname() { Pkgname::new("package12@._+-").unwrap(); }
+            let pkgname = Pkgname::new(&name, &parent, &parent).unwrap();
+            assert_eq!(pkgname.0, name);
+        }
 
-    #[test]
-    #[allow(clippy::too_many_lines)]
-    fn test_parser() {
-        let source_code = r#"pkgname='potato' # can also be an array, probably shouldn't be though
-pkgver='1.0.0' # this is the variable pkgver, can also be a function that will return dynamic version
-epoch='0' # force package to be seen as newer no matter what
-pkgdesc='Pretty obvious'
-url='https://potato.com'
-license="GPL-3.0-or-later WITH Classpath-exception-2.0 OR MIT AND AAL"
-arch=('any' 'x86_64')
-maintainer=('Henryws <hwengerstickel@pm.me>' 'wizard-28 <wiz28@pm.me>')
-repology=([project]="$pkgname")
-provides=('foo' 'bar')
-mascot="ferris"
-source=(
-	"https://potato.com/$pkgver.tar.gz"
-	"potato.tar.gz::https://potato.com/$pkgver.tar.gz" # with a forced download name
-	"$pkgname::git+https://github.com/pacstall/pacstall" # git repo
-	"$pkgname::https://github.com/pacstall/pacstall/releases/download/2.0.1/pacstall-2.0.1.deb::repology" # use changelog with repology
-	"$pkgname::git+https://github.com/pacstall/pacstall#branch=master" # git repo with branch
-	"$pkgname::git+file://home/henry/pacstall/pacstall" # local git repo
-	"magnet://xt=urn:btih:c4769d7000244e4cae9c054a83e38f168bf4f69f&dn=archlinux-2022.09.03-x86_64.iso" # magnet link
-	"ftp://ftp.gnu.org/gnu/$pkgname/$pkgname-$pkgver.tar.xz" # ftp
-	"patch-me-harder.patch::https://potato.com/patch-me.patch"
-) # also source_x86_64=(), source_i386=()
+        #[test]
+        fn test_invalid_pkgname(name in r"[.-][^a-z0-9@._+-]+") {
+            let mut parser = Parser::new();
+            parser.set_language(tree_sitter_bash::language()).unwrap();
+            let tree = parser.parse(b"test", None).unwrap();
+            let parent = tree.root_node();
 
-noextract=(
-	"$pkgver.tar.gz"
-)
+            let result = Pkgname::new(&name, &parent, &parent);
+            assert!(result.is_err());
+        }
 
-sha256sums=(
-    "any_sha256sum_1"
-	'SKIP'
-	'SKIP'
-)
+        #[test]
+        fn test_pkgver(version in r"[a-zA-Z0-9._]+") {
+            let mut parser = Parser::new();
 
-sha256sums_x86_64=(
-    "x86_64_sha256sum_1"
-    "SKIP"
-    "x86_64_sha256sum_2"
-    "SKIP"
-)
+            parser.set_language(tree_sitter_bash::language()).unwrap();
+            let tree = parser.parse(b"test", None).unwrap();
+            let parent = tree.root_node();
 
-sha256sums_aarch64=(
-    "aarch64_sha256sum_1"
-)
+            let pkgver = Pkgver::new(&version, &parent, &parent).unwrap();
+            assert_eq!(pkgver.0, version);
+        }
 
-sha348sums=(
-    "sha348sum_1"
-    "SKIP"
-)
+        #[test]
+        fn test_invalid_pkgver(version in r"[^a-zA-Z0-9._]") {
+            let mut parser = Parser::new();
+            parser.set_language(tree_sitter_bash::language()).unwrap();
+            let tree = parser.parse(b"test", None).unwrap();
+            let parent = tree.root_node();
 
-sha512sums=(
-    "sha512sum_1"
-    "SKIP"
-)
+            let result = Pkgver::new(&version, &parent, &parent);
+            assert!(result.is_err());
+        }
 
-b2sums=(
-    "b2sum_1"
-    "SKIP"
-)
+        #[test]
+        fn test_dependency(name in r#"[\x00-\x7F&&[^:]]+"#, version_req in r#"(?:(>=|<=|>|<|=|\^|~))?((0|[1-9][0-9]{0,9})\.(0|[1-9][0-9]{0,9})\.(0|[1-9][0-9]{0,9})(?:-((?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?)(?:, (?:(>=|<=|>|<|=|\^|~))?((0|[1-9][0-9]{0,9})\.(0|[1-9][0-9]{0,9})\.(0|[1-9][0-9]{0,9})(?:-((?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?)){0,31}"#) {
+            let mut parser = Parser::new();
+            parser.set_language(tree_sitter_bash::language()).unwrap();
+            let tree = parser.parse(b"test", None).unwrap();
+            let parent = tree.root_node();
+
+            let dependency_without_version_req = Dependency::new(&name, &parent, &parent).unwrap();
+            assert_eq!(dependency_without_version_req.name, name);
+            assert_eq!(dependency_without_version_req.version_req, None);
+
+            let dependency_without_version_req = Dependency::new(&(name.clone() + ": " + &version_req), &parent, &parent).unwrap();
+            assert_eq!(dependency_without_version_req.name, name);
+            assert_eq!(dependency_without_version_req.version_req, Some(VersionReq::parse(&version_req).unwrap()));
+        }
 
 
-optdepends=(
-	'same as pacstall: yes'
-) # rince and repeat optdepends_$arch=()
+        // #[test]
+        // fn test_invalid_dependency(name in r#"[^\x00-\x7F]*"#, version_req in r#"[^(?:(>=|<=|>|<|=|\^|~))?((0|[1-9][0-9]{0,9})\.(0|[1-9][0-9]{0,9})\.(0|[1-9][0-9]{0,9})(?:-((?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?)(?:, (?:(>=|<=|>|<|=|\^|~))?((0|[1-9][0-9]{0,9})\.(0|[1-9][0-9]{0,9})\.(0|[1-9][0-9]{0,9})(?:-((?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?)){0,31}]"#) {
+        //     let mut parser = Parser::new();
+        //     parser.set_language(tree_sitter_bash::language()).unwrap();
+        //     let tree = parser.parse(b"test", None).unwrap();
+        //     let parent = tree.root_node();
 
-depends=(
-	'hashbrowns>=1.8.0'
-	'mashed-potatos<=1.9.0'
-	'gravy=2.3.0'
-	'applesauce>3.0.0'
-	'chicken<2.0.0'
-	'libappleslices.so'
-	'libdeepfryer.so=3'
-)
+        //     assert!(Dependency::new(&name, &parent, &parent).is_err());
 
-makedepends=(
-	'whisk'
-	'onions'
-)
+        //     let dependency_without_version_req = Dependency::new(&(name.to_owned() + ": " + &version_req), &parent, &parent).unwrap();
+        //     assert_eq!(dependency_without_version_req.name, name);
+        //     assert_eq!(dependency_without_version_req.version_req, Some(VersionReq::parse(&version_req).unwrap()));
+        // }
 
-checkdepends=(
-	'customer_satisfaction'
-)
+        // #[test]
+        // fn test_maintainer(name in r"\S.*\S", email in r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+") {
+        //     let mut parser = Parser::new();
+        //     parser.set_language(tree_sitter_bash::language()).unwrap();
+        //     let tree = parser.parse(b"test", None).unwrap();
+        //     let parent = tree.root_node();
 
-ppa=('mcdonalds/ppa')
 
-provides=(
-	'mashed-potatos'
-	'aaaaaaaaaaaaaaaaaaaaaaaaaa'
-)
+        //     let maintainer_without_email = Maintainer::new(&name, &parent, &parent).unwrap();
+        //     assert_eq!(maintainer_without_email.name, name);
+        // }
 
-conflicts=(
-	'KFC'
-	'potato_rights'
-) # can also do conflicts_$arch=()
+        #[test]
+        fn test_repology(value in r"[^\s:]+") {
+            let mut parser = Parser::new();
+            parser.set_language(tree_sitter_bash::language()).unwrap();
+            let tree = parser.parse(b"test", None).unwrap();
+            let parent = tree.root_node();
 
-replaces=(
-	'kidney_beans'
-)
+            let repology_filter = RepologyFilter::new(&format!("name: {value}"), &parent, &parent).unwrap();
+            if let RepologyFilter::Name(name) = repology_filter {
+                assert_eq!(name, value);
+            }
+        }
 
-backup=(
-	'etc/potato/prepare.conf'
-)
 
-options=(
-	'!strip'
-	'!docs'
-	'etc'
-)
+        #[test]
+        fn test_invalid_repology(value in r"[\s:]*") {
+            let mut parser = Parser::new();
+            parser.set_language(tree_sitter_bash::language()).unwrap();
+            let tree = parser.parse(b"test", None).unwrap();
+            let parent = tree.root_node();
 
-groups=('potato-clan')
+            assert!(RepologyFilter::new(&format!("name:{value}"), &parent, &parent).is_err());
+            assert!(RepologyFilter::new(&format!("name: {value}"), &parent, &parent).is_err());
+        }
 
-prepare() {
-	cd "$pkgname-$pkgver"
-	patch -p1 -i "$srcdir/patch-me-harder.patch"
-}
-
-func() {
-    true
-}
-
-build() {
-	cd "$pkgname-$pkgver"
-	./configure --prefix=/usr
-	make
-}
-
-check() {
-	cd "$pkgname-$pkgver"
-	make -k check
-}
-
-package() {
-	cd "$pkgname-$pkgver"
-	make DESTDIR="$pkgdir/" install
-}
-
-pre_install() {
-	echo "potato"
-}
-
-post_install() {
-	echo "potato"
-}
-
-pre_upgrade() {
-	echo "potato"
-}
-
-post_upgrade() {
-	echo "potato"
-}
-
-pre_remove() {
-	echo "potato"
-}
-
-post_remove() {
-	echo "potato"
-}"#
-        .trim();
-
-        let pacbuild = PacBuild::from_source(source_code).unwrap();
-
-        assert_eq!(pacbuild.pkgname, vec![Pkgname::new("potato").unwrap()]);
-        assert_eq!(
-            pacbuild.pkgver,
-            PkgverType::Variable(Pkgver::new("1.0.0").unwrap())
-        );
-        assert_eq!(pacbuild.epoch, Some(0));
-        assert_eq!(pacbuild.pkgdesc, Some("Pretty obvious".into()));
-        assert_eq!(pacbuild.url, Some("https://potato.com".into()));
-        assert_eq!(
-            pacbuild.license,
-            Some(
-                Expression::parse("GPL-3.0-or-later WITH Classpath-exception-2.0 OR MIT AND AAL")
-                    .unwrap()
-            )
-        );
-        assert_eq!(
-            pacbuild.custom_variables,
-            Some(HashMap::from([("mascot".into(), "ferris".into())]))
-        );
-
-        assert_eq!(pacbuild.arch, vec!["any", "x86_64"]);
-        assert_eq!(
-            pacbuild.maintainer,
-            Some(vec![
-                Maintainer {
-                    name: "Henryws".into(),
-                    email: Some("hwengerstickel@pm.me".into())
-                },
-                Maintainer {
-                    name: "wizard-28".into(),
-                    email: Some("wiz28@pm.me".into())
-                }
-            ])
-        );
-        assert_eq!(pacbuild.noextract, Some(vec!["1.0.0.tar.gz".into()]));
-        assert_eq!(
-            pacbuild.sha256sums,
-            Some(HashMap::from([
-                (
-                    "any".into(),
-                    vec![Some("any_sha256sum_1".into()), None, None]
-                ),
-                (
-                    "x86_64".into(),
-                    vec![
-                        Some("x86_64_sha256sum_1".into()),
-                        None,
-                        Some("x86_64_sha256sum_2".into()),
-                        None
-                    ]
-                ),
-                ("aarch64".into(), vec![Some("aarch64_sha256sum_1".into())])
-            ]))
-        );
-        assert_eq!(
-            pacbuild.sha348sums,
-            Some(HashMap::from([(
-                "any".into(),
-                vec![Some("sha348sum_1".into()), None]
-            )]))
-        );
-        assert_eq!(
-            pacbuild.sha512sums,
-            Some(HashMap::from([(
-                "any".into(),
-                vec![Some("sha512sum_1".into()), None]
-            )]))
-        );
-        assert_eq!(
-            pacbuild.b2sums,
-            Some(HashMap::from([(
-                "any".into(),
-                vec![Some("b2sum_1".into()), None]
-            )]))
-        );
-        assert_eq!(
-            pacbuild.prepare,
-            Some(
-                "prepare () \n{ \n    cd \"$pkgname-$pkgver\";\n    patch -p1 -i \
-                 \"$srcdir/patch-me-harder.patch\"\n}"
-                    .into()
-            )
-        );
-        assert_eq!(
-            pacbuild.build,
-            Some(
-                "build () \n{ \n    cd \"$pkgname-$pkgver\";\n    ./configure --prefix=/usr;\n    \
-                 make\n}"
-                    .into()
-            )
-        );
-        assert_eq!(
-            pacbuild.check,
-            Some("check () \n{ \n    cd \"$pkgname-$pkgver\";\n    make -k check\n}".into())
-        );
-        // pub package: Option<String>,
-        // pub pre_install: Option<String>,
-        // pub post_install: Option<String>,
-        // pub pre_upgrade: Option<String>,
-        // pub post_upgrade: Option<String>,
-        // pub pre_remove: Option<String>,
-        // pub post_remove: Option<String>,
-        // pub custom_functions: Option<HashMap<String, String>>,
     }
 }
+
+//     //     #[rstest]
+//     //     #[case("-package12@._+-")]
+//     //     #[case(".package12@._+-")]
+//     //     #[case("Package12@._+-")]
+//     //     #[should_panic]
+//     //     fn invalid_pkgnames(#[case] test_case: &str) {
+//     //         Pkgname::new(test_case).unwrap();
+//     //     }
+
+//     //     #[test]
+//     //     fn valid_pkgname() {
+//     //         Pkgname::new("package12@._+-").unwrap();
+//     //     }
+
+//     //     #[test]
+//     //     #[allow(clippy::too_many_lines)]
+//     //     fn test_parser() {
+//     //         let source_code = r#"pkgname='potato' # can also be an array,
+// probably shouldn't be though     // pkgver='1.0.0' # this is the variable
+// pkgver, can also be a function that will return dynamic version     //
+// epoch=' 0' # force package to be seen as newer no matter what     //
+// pkgdesc='Pretty obvious'     // url='https://potato.com'
+//     // license="GPL-3.0-or-later WITH Classpath-exception-2.0 OR MIT AND AAL"
+//     // arch=('any' 'x86_64')
+//     // maintainer=('Henryws <hwengerstickel@pm.me>' 'wizard-28
+// <wiz28@pm.me>')     // repology=([project]="$pkgname")
+//     // provides=('foo' 'bar')
+//     // mascot="ferris"
+//     // source=(
+//     // 	"https://potato.com/$pkgver.tar.gz"
+//     // 	"potato.tar.gz::https://potato.com/$pkgver.tar.gz" # with a forced download name
+//     // 	"$pkgname::git+https://github.com/pacstall/pacstall" # git repo
+//     // 	"$pkgname::https://github.com/pacstall/pacstall/releases/download/2.0.1/pacstall-2.0.1.deb::repology" # use changelog with repology
+//     // 	"$pkgname::git+https://github.com/pacstall/pacstall#branch=master" # git repo with branch
+//     // 	"$pkgname::git+file://home/henry/pacstall/pacstall" # local git repo
+//     // 	"magnet://xt=urn:btih:c4769d7000244e4cae9c054a83e38f168bf4f69f&
+// dn=archlinux-2022.09.03-x86_64.iso" # magnet link     // 	"ftp://ftp.gnu.org/gnu/$pkgname/$pkgname-$pkgver.tar.xz" # ftp
+//     // 	"patch-me-harder.patch::https://potato.com/patch-me.patch"
+//     // ) # also source_x86_64=(), source_i386=()
+
+//     // noextract=(
+//     // 	"$pkgver.tar.gz"
+//     // )
+
+//     // sha256sums=(
+//     //     "any_sha256sum_1"
+//     // 	'SKIP'
+//     // 	'SKIP'
+//     // )
+
+//     // sha256sums_x86_64=(
+//     //     "x86_64_sha256sum_1"
+//     //     "SKIP"
+//     //     "x86_64_sha256sum_2"
+//     //     "SKIP"
+//     // )
+
+//     // sha256sums_aarch64=(
+//     //     "aarch64_sha256sum_1"
+//     // )
+
+//     // sha348sums=(
+//     //     "sha348sum_1"
+//     //     "SKIP"
+//     // )
+
+//     // sha512sums=(
+//     //     "sha512sum_1"
+//     //     "SKIP"
+//     // )
+
+//     // b2sums=(
+//     //     "b2sum_1"
+//     //     "SKIP"
+//     // )
+
+//     // optdepends=(
+//     // 	'same as pacstall: yes'
+//     // ) # rince and repeat optdepends_$arch=()
+
+//     // depends=(
+//     // 	'hashbrowns>=1.8.0'
+//     // 	'mashed-potatos<=1.9.0'
+//     // 	'gravy=2.3.0'
+//     // 	'applesauce>3.0.0'
+//     // 	'chicken<2.0.0'
+//     // 	'libappleslices.so'
+//     // 	'libdeepfryer.so=3'
+//     // )
+
+//     // makedepends=(
+//     // 	'whisk'
+//     // 	'onions'
+//     // )
+
+//     // checkdepends=(
+//     // 	'customer_satisfaction'
+//     // )
+
+//     // ppa=('mcdonalds/ppa')
+
+//     // provides=(
+//     // 	'mashed-potatos'
+//     // 	'aaaaaaaaaaaaaaaaaaaaaaaaaa'
+//     // )
+
+//     // conflicts=(
+//     // 	'KFC'
+//     // 	'potato_rights'
+//     // ) # can also do conflicts_$arch=()
+
+//     // replaces=(
+//     // 	'kidney_beans'
+//     // )
+
+//     // backup=(
+//     // 	'etc/potato/prepare.conf'
+//     // )
+
+//     // options=(
+//     // 	'!strip'
+//     // 	'!docs'
+//     // 	'etc'
+//     // )
+
+//     // groups=('potato-clan')
+
+//     // prepare() {
+//     // 	cd "$pkgname-$pkgver"
+//     // 	patch -p1 -i "$srcdir/patch-me-harder.patch"
+//     // }
+
+//     // func() {
+//     //     true
+//     // }
+
+//     // build() {
+//     // 	cd "$pkgname-$pkgver"
+//     // 	./configure --prefix=/usr
+//     // 	make
+//     // }
+
+//     // check() {
+//     // 	cd "$pkgname-$pkgver"
+//     // 	make -k check
+//     // }
+
+//     // package() {
+//     // 	cd "$pkgname-$pkgver"
+//     // 	make DESTDIR="$pkgdir/" install
+//     // }
+
+//     // pre_install() {
+//     // 	echo "potato"
+//     // }
+
+//     // post_install() {
+//     // 	echo "potato"
+//     // }
+
+//     // pre_upgrade() {
+//     // 	echo "potato"
+//     // }
+
+//     // post_upgrade() {
+//     // 	echo "potato"
+//     // }
+
+//     // pre_remove() {
+//     // 	echo "potato"
+//     // }
+
+//     // post_remove() {
+//     // 	echo "potato"
+//     // }"#
+//     //         .trim();
+
+//     //         let pacbuild = PacBuild::from_source(source_code).unwrap();
+
+//     //         assert_eq!(pacbuild.pkgname,
+// vec![Pkgname::new("potato").unwrap()]);     //         assert_eq!(
+//     //             pacbuild.pkgver,
+//     //             PkgverType::Variable(Pkgver::new("1.0.0").unwrap())
+//     //         );
+//     //         assert_eq!(pacbuild.epoch, Some(0));
+//     //         assert_eq!(pacbuild.pkgdesc, Some("Pretty obvious".into()));
+//     //         assert_eq!(pacbuild.url, Some("https://potato.com".into()));
+//     //         assert_eq!(
+//     //             pacbuild.license,
+//     //             Some(
+//     //                 Expression::parse("GPL-3.0-or-later WITH
+// Classpath-exception-2.0 OR MIT AND AAL")     //                     .unwrap()
+//     //             )
+//     //         );
+//     //         assert_eq!(
+//     //             pacbuild.custom_variables,
+//     //             Some(HashMap::from([("mascot".into(), "ferris".into())]))
+//     //         );
+
+//     //         assert_eq!(pacbuild.arch, vec!["any", "x86_64"]);
+//     //         assert_eq!(
+//     //             pacbuild.maintainer,
+//     //             Some(vec![
+//     //                 Maintainer {
+//     //                     name: "Henryws".into(),
+//     //                     email: Some("hwengerstickel@pm.me".into())
+//     //                 },
+//     //                 Maintainer {
+//     //                     name: "wizard-28".into(),
+//     //                     email: Some("wiz28@pm.me".into())
+//     //                 }
+//     //             ])
+//     //         );
+//     //         assert_eq!(pacbuild.noextract,
+// Some(vec!["1.0.0.tar.gz".into()]));     //         assert_eq!(
+//     //             pacbuild.sha256sums,
+//     //             Some(HashMap::from([
+//     //                 (
+//     //                     "any".into(),
+//     //                     vec![Some("any_sha256sum_1".into()), None, None]
+//     //                 ),
+//     //                 (
+//     //                     "x86_64".into(),
+//     //                     vec![
+//     //                         Some("x86_64_sha256sum_1".into()),
+//     //                         None,
+//     //                         Some("x86_64_sha256sum_2".into()),
+//     //                         None
+//     //                     ]
+//     //                 ),
+//     //                 ("aarch64".into(),
+// vec![Some("aarch64_sha256sum_1".into())])     //             ]))
+//     //         );
+//     //         assert_eq!(
+//     //             pacbuild.sha348sums,
+//     //             Some(HashMap::from([(
+//     //                 "any".into(),
+//     //                 vec![Some("sha348sum_1".into()), None]
+//     //             )]))
+//     //         );
+//     //         assert_eq!(
+//     //             pacbuild.sha512sums,
+//     //             Some(HashMap::from([(
+//     //                 "any".into(),
+//     //                 vec![Some("sha512sum_1".into()), None]
+//     //             )]))
+//     //         );
+//     //         assert_eq!(
+//     //             pacbuild.b2sums,
+//     //             Some(HashMap::from([(
+//     //                 "any".into(),
+//     //                 vec![Some("b2sum_1".into()), None]
+//     //             )]))
+//     //         );
+//     //         assert_eq!(
+//     //             pacbuild.prepare,
+//     //             Some(
+//     //                 "prepare () \n{ \n    cd \"$pkgname-$pkgver\";\n
+// patch -p1 -i \     //                  \"$srcdir/patch-me-harder.patch\"\n}"
+//     //                     .into()
+//     //             )
+//     //         );
+//     //         assert_eq!(
+//     //             pacbuild.build,
+//     //             Some(
+//     //                 "build () \n{ \n    cd \"$pkgname-$pkgver\";\n
+// ./configure --prefix=/usr;\n    \     //                  make\n}"
+//     //                     .into()
+//     //             )
+//     //         );
+//     //         assert_eq!(
+//     //             pacbuild.check,
+//     //             Some("check () \n{ \n    cd \"$pkgname-$pkgver\";\n
+// make -k check\n}".into())     //         );
+//     //         // pub package: Option<String>,
+//     //         // pub pre_install: Option<String>,
+//     //         // pub post_install: Option<String>,
+//     //         // pub pre_upgrade: Option<String>,
+//     //         // pub post_upgrade: Option<String>,
+//     //         // pub pre_remove: Option<String>,
+//     //         // pub post_remove: Option<String>,
+//     //         // pub custom_functions: Option<HashMap<String, String>>,
+//     //     }
+// }

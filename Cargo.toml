@@ -3,9 +3,9 @@ name = "libpacstall"
 version = "0.1.0"
 edition = "2021"
 authors = [
-    "Sourajyoti Basak <wiz28@protonmail.com>",
-    "David Brochero <davidfbg00@gmail.com>",
-    "Paul Cosma <paul.cosma97@gmail.com>"
+  "Sourajyoti Basak <wiz28@protonmail.com>",
+  "David Brochero <davidfbg00@gmail.com>",
+  "Paul Cosma <paul.cosma97@gmail.com>",
 ]
 description = "Backend API library for Pacstall"
 repository = "https://github.com/pacstall/libpacstall"
@@ -14,18 +14,27 @@ keywords = ["aur", "pacstall", "package-manager", "linux", "apt"]
 categories = ["caching", "config", "parsing", "os::linux-apis"]
 
 [dependencies]
-error-stack = "0.2.3"
-figment = { version = "0.10.6", features = ["env", "test", "toml" ] }
+figment = { version = "0.10.6", features = ["env", "test", "toml"] }
+miette = "5.5.0"
 num_cpus = "1.13.1"
+regex = "1.7.0"
+semver = "1.0.14"
 serde = { version = "1.0.144", features = ["derive"] }
-spdx = "0.9.0"
+spdx = "0.10.0"
+strum = { version = "0.24.1", features = ["derive"] }
 thiserror = "1.0.37"
 tree-sitter = "0.19"
 tree-sitter-bash = "0.19.0"
 
 [dev-dependencies]
+miette = { version = "5.5.0", features = ["fancy"] }
 criterion = { version = "0.4.0", features = ["html_reports"] }
-rstest = "0.15.0"
+rstest = "0.16.0"
+proptest = "1.0.0"
+
+
+[[example]]
+name = "parser"
 
 [[bench]]
 name = "parser"

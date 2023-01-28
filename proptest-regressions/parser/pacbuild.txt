@@ -1,0 +1,22 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc d852d8ab1865b7cd6cd0a169b0f9623924b087f06f45c37b71dd755c2905d17b # shrinks to version = "¡"
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc c0a8aeb72996e589b4531ff434ba0cf3a78d285d0d331e57fa01ec711cf65b74 # shrinks to name = "¡"
+cc f1c3f577e82492bf2b437a5ea82df991eeff728a04009f6306f3f3bcfc5251d8 # shrinks to name = "-"
+cc e5174aa9101b6422efc1327ce3176df895036712ab6d21082731d199cfeac9b2 # shrinks to name = ".a"
+cc 4a837b559db189d9f3b4be4819eb293b163a433e3e9d50f476844096ff5e3c86 # shrinks to name = "z"
+cc 3e96b46990a80964a0d69f13de029db178dab8dac811353ad973c5fee2b85ac3 # shrinks to name = ""
+cc 6d1545dad9462e6e30fdf91f1a25462532b2e40327bb36a8c7a9bd152a37610e # shrinks to name = "0"
+cc de06beeedfa5666db998956db96183abf32ffa4a551fe22b0826242bf7535ccb # shrinks to name = ":", version_req = "0"
+cc b1b6390f4ec735609c5351febfee2a0d8a3b1b7895c3d03ace0e888a4b4efc53 # shrinks to name = "\t", email = "a@a.a"
+cc 506f616e095e77967291c2782e927324b41cef3302f04809a2230c5c057e7ca4 # shrinks to value = ""

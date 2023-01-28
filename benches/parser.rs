@@ -7,12 +7,10 @@ pkgver='1.0.0' # this is the variable pkgver, can also be a function that will r
 epoch='0' # force package to be seen as newer no matter what
 pkgdesc='Pretty obvious'
 url='https://potato.com'
-license="GPL-3.0+ WITH Classpath-exception-2.0 OR MIT AND AAL"
+license="Apache-2.0 OR MIT"
 arch=('any' 'x86_64')
-maintainer=('Henryws <hwengerstickel@pm.me>' 'Wizard-28 <wiz28@pm.me>')
-repology=([project]="$pkgname")
-provides=('foo' 'bar')
-gopher="imagine using go"
+maintainer=('Henryws <hwengerstickel@pm.me>' 'Wizard-28 <wiz28@pm.me> <alternate_wiz28@pm.me>')
+repology=("project: $pkgname")
 source=(
 	"https://potato.com/$pkgver.tar.gz"
 	"potato.tar.gz::https://potato.com/$pkgver.tar.gz" # with a forced download name
@@ -35,34 +33,6 @@ sha256sums=(
 	'SKIP'
 	'etc'
 ) # can also do sha256sums_x86_64=(), repeat for sha384, sha512, and b2
-
-sha256sums_x86_64=(
-    "funny_x86_64"
-    "hilarious_x86_64"
-    "SKIP"
-)
-
-sha256sums_aarch64=(
-    "funny_aarch64"
-    "hilarious_aarch64"
-    "SKIP"
-)
-
-sha348sums=(
-    "hilarious"
-    "SKIP"
-)
-
-sha512sums=(
-    "lol"
-    "SKIP"
-)
-
-b2sums=(
-    "lmao",
-    "SKIP"
-)
-
 
 optdepends=(
 	'same as pacstall: yes'
@@ -115,13 +85,11 @@ options=(
 
 groups=('potato-clan')
 
+incompatible=('debian::jessy' 'ubuntu::20.04')
+
 prepare() {
 	cd "$pkgname-$pkgver"
 	patch -p1 -i "$srcdir/patch-me-harder.patch"
-}
-
-func() {
-    true
 }
 
 build() {

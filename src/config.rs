@@ -397,7 +397,7 @@ mod tests {
                 let selected_editor_path = &home.join(".selected_editor");
 
                 writeln!(
-                    File::create(&selected_editor_path)?,
+                    File::create(selected_editor_path)?,
                     r#"
                     # This is a mock file, if this persists on your system contact the Pacstall developers.
                     SELECTED_EDITOR="/usr/bin/nvim"

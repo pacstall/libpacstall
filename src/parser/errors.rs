@@ -1,47 +1,42 @@
-use std::fmt::Display;
+use miette::{Diagnostic, Report, SourceSpan};
+use thiserror::Error;
 
-use error_stack::Context;
+#[derive(Debug, Diagnostic, Error)]
+#[error("Parser error")]
+pub struct ParseError {
+    /// Source code.
+    #[source_code]
+    pub input: String,
 
-#[derive(Debug)]
-pub struct ParserError;
-
-impl Display for ParserError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("failed to parse the pacbuild")
-    }
+    #[related]
+    pub related: Vec<Report>,
 }
 
-impl Context for ParserError {}
+#[derive(Debug, Diagnostic, Clone, Eq, PartialEq, Error)]
+#[error("Invalid field")]
+pub struct FieldError {
+    /// States the issues with the field.
+    pub field_label: String,
 
-// #[derive(Debug)]
-// pub struct ValidationError;
+    /// Span of the field which has the error.
+    #[label("{field_label}")]
+    pub field_span: SourceSpan,
 
-// impl Display for ValidationError {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         f.write_str("failed to validate")
-//     }
-// }
+    /// Span of the erroneous source code.
+    #[label("here")]
+    pub error_span: SourceSpan,
 
-// impl Context for ValidationError {}
-
-#[derive(Debug)]
-pub struct InvalidField;
-
-impl Display for InvalidField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("invalid field")
-    }
+    /// Suggestion for fixing the parser error.
+    #[help]
+    pub help: String,
 }
 
-impl Context for InvalidField {}
-
-#[derive(Debug)]
-pub struct MissingField;
-
-impl Display for MissingField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("required field is missing")
-    }
+#[derive(Debug, Diagnostic, Clone, Eq, PartialEq, Error)]
+#[error("Missing field")]
+pub struct MissingField {
+    pub label: &'static str,
 }
 
-impl Context for MissingField {}
+#[derive(Debug, Diagnostic, Clone, Eq, PartialEq, Error)]
+#[error("Bad syntax")]
+pub struct BadSyntax;
