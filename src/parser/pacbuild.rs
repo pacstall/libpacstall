@@ -1054,10 +1054,12 @@ impl PacBuild {
         let mut custom_functions: Option<HashMap<String, String>> = None;
 
         #[allow(clippy::similar_names)]
-        let sourced_code = Command::new("bash")
+        let sourced_code = Command::new("env")
             .args([
+                "-i",
+                "bash",
                 "-c",
-                &format!(r#"{source_code}; SOURCED_CODE="$(declare -p | cut -d ' ' -f 3-)"; TAIL="$(echo "$SOURCED_CODE" | grep -m 1 -n '_=\"\"' | cut -d ':' -f 1)"; echo "$SOURCED_CODE" | tail -n +$(($TAIL + 1)); declare -f"#),
+                &format!(r#"VARS="$(compgen -v)"; {source_code}; VARS="`grep -vFe "$VARS" <<< "$(compgen -v)"|grep -v ^VARS |grep -v ^PIPESTATUS`"; declare -p $VARS|cut -d " " -f 3-; declare -f"#),
             ])
             .output()
             .unwrap();
