@@ -5,4 +5,6 @@
     html_logo_url = "https://raw.githubusercontent.com/pacstall/website/master/client/public/pacstall.svg"
 )]
 #![allow(clippy::must_use_candidate)]
+
 pub mod config;
+pub mod parser;
