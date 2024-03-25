@@ -1,3 +1,25 @@
+#     __    _ __    ____                  __        ____
+#    / /   (_) /_  / __ \____ ___________/ /_____ _/ / /
+#   / /   / / __ \/ /_/ / __ `/ ___/ ___/ __/ __ `/ / /
+#  / /___/ / /_/ / ____/ /_/ / /__(__  ) /_/ /_/ / / /
+# /_____/_/_.___/_/    \__,_/\___/____/\__/\__,_/_/_/
+#
+# Copyright (C) 2022-present
+#
+# This file is part of LibPacstall.
+#
+# LibPacstall is free software: you can redistribute it and/or modify it under the
+# terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
+#
+# LibPacstall is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with
+# LibPacstall. If not, see <https://www.gnu.org/licenses/>.
+
 ci:
   skip: [
     fish_syntax,
@@ -12,7 +34,7 @@ ci:
 repos:
   # General
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.3.0
+    rev: v4.5.0
     hooks:
       - id: check-added-large-files
       - id: check-ast
@@ -40,7 +62,7 @@ repos:
         types: [fish]
   # Misc
   - repo: https://github.com/Lucas-C/pre-commit-hooks
-    rev: v1.3.1
+    rev: v1.5.5
     hooks:
       - id: insert-license
         args: [
